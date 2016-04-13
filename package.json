@@ -1,0 +1,20 @@
+{
+  "name": "boozy-bot",
+  "version": "1.0.0",
+  "description": "Telegram Bot suggesting cocktail recipes from provided ingredients",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "cocktails"
+  ],
+  "author": "Denis Parchenko",
+  "license": "ISC",
+  "devDependencies": {
+    "eslint": "^2.7.0",
+    "eslint-config-airbnb": "^7.0.0",
+  }
+}
