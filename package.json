@@ -1,6 +1,7 @@
 {
   "name": "boozy-bot",
   "version": "1.0.0",
+  "private": true,
   "description": "Telegram Bot suggesting cocktail recipes from provided ingredients",
   "main": "app.js",
   "scripts": {
@@ -15,6 +16,6 @@
   "license": "ISC",
   "devDependencies": {
     "eslint": "^2.7.0",
-    "eslint-config-airbnb": "^7.0.0",
+    "eslint-config-airbnb": "^7.0.0"
   }
 }
