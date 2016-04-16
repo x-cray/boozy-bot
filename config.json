@@ -1,0 +1,11 @@
+{
+  "bot": {
+    "token": ""
+  },
+  "queue": {
+    "redis": {
+      "host": null,
+  		"port": null
+    }
+  }
+}

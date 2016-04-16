@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "description": "Telegram Bot suggesting cocktail recipes from provided ingredients",
-  "main": "app.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -17,5 +16,9 @@
   "devDependencies": {
     "eslint": "^2.7.0",
     "eslint-config-airbnb": "^7.0.0"
+  },
+  "dependencies": {
+    "bull": "^0.7.2",
+    "nconf": "^0.8.4"
   }
 }
