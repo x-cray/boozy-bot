@@ -19,6 +19,12 @@
   },
   "dependencies": {
     "bull": "^0.7.2",
-    "nconf": "^0.8.4"
+    "bunyan": "^1.8.0",
+    "bunyan-format": "^0.2.1",
+    "bunyan-logentries": "^1.2.0",
+    "co": "^4.6.0",
+    "nconf": "^0.8.4",
+    "node-fetch": "^1.5.1",
+    "supports-color": "^3.1.2"
   }
 }

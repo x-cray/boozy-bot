@@ -3,3 +3,4 @@ env:
   node: true
 rules:
   no-console: off
+  comma-dangle: ofF

@@ -2,6 +2,10 @@
   "bot": {
     "token": ""
   },
+  "logentries": {
+		"enabled": false,
+		"token": null
+	},
   "queue": {
     "redis": {
       "host": null,

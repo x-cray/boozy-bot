@@ -1,15 +1,27 @@
 /* @flow */
 'use strict';
 
-import http from 'http';
-import Queue from 'bull';
-import config from './lib/config.js';
+const co = require('co');
+const Queue = require('bull');
+const ApiClient = require('./lib/api-client');
+const config = require('./lib/config');
+const logger = require('./lib/logger');
 
 const queueConfig = config.get('queue');
-const botConfig = config.get('bot');
-const updatesQueue = Queue('updates', queueConfig.redis.port, queueConfig.redis.host);
-let offset = null;
+const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.redis.host);
+const apiClient = new ApiClient();
 
-function* getUpdates() {
-  http.get(`https://api.telegram.org/bot${botConfig.token}/getUpdates?timeout=5&${offset}`);
-}
+co(function* enqueueBotUpdates() {
+  while (true) { // eslint-disable-line no-constant-condition
+    try {
+      const updates = yield apiClient.getUpdates();
+      if (updates.length) {
+        updates.forEach(updatesQueue.add.bind(updatesQueue));
+      }
+    } catch (e) {
+      logger.error(e);
+    }
+  }
+});
+
+logger.close();
