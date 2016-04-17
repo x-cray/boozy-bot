@@ -2,6 +2,9 @@
   "bot": {
     "token": ""
   },
+  "addb": {
+    "key": null
+  },
   "logentries": {
 		"enabled": false,
 		"token": null

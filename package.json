@@ -25,6 +25,7 @@
     "co": "^4.6.0",
     "nconf": "^0.8.4",
     "node-fetch": "^1.5.1",
-    "supports-color": "^3.1.2"
+    "supports-color": "^3.1.2",
+    "toureiro": "^0.2.5"
   }
 }

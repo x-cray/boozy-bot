@@ -3,13 +3,14 @@
 
 const co = require('co');
 const Queue = require('bull');
-const ApiClient = require('./lib/api-client');
+const TelegramApiClient = require('./lib/telegram-api-client');
 const config = require('./lib/config');
 const logger = require('./lib/logger');
 
 const queueConfig = config.get('queue');
+const botConfig = config.get('bot');
 const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.redis.host);
-const apiClient = new ApiClient();
+const apiClient = new TelegramApiClient(botConfig.token);
 
 co(function* enqueueBotUpdates() {
   while (true) { // eslint-disable-line no-constant-condition
@@ -23,5 +24,3 @@ co(function* enqueueBotUpdates() {
     }
   }
 });
-
-logger.close();
