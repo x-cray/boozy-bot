@@ -7,13 +7,13 @@
     "key": null
   },
   "logentries": {
-		"enabled": false,
-		"token": null
-	},
+    "enabled": false,
+    "token": null
+  },
   "queue": {
     "redis": {
       "host": null,
-  		"port": null
+      "port": null
     }
   }
 }
