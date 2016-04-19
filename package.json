@@ -23,8 +23,10 @@
     "bunyan-format": "^0.2.1",
     "bunyan-logentries": "^1.2.0",
     "co": "^4.6.0",
+    "mysql": "^2.10.2",
     "nconf": "^0.8.4",
     "node-fetch": "^1.5.1",
+    "sequelize": "^3.21.0",
     "supports-color": "^3.1.2",
     "toureiro": "^0.2.5"
   }

@@ -10,10 +10,16 @@
     "enabled": false,
     "token": null
   },
+  "db": {
+    "host": "localhost",
+    "user": "root",
+    "password": "",
+    "name": "boozybot"
+  },
   "queue": {
     "redis": {
-      "host": null,
-      "port": null
+      "host": "localhost",
+      "port": 6379
     }
   }
 }

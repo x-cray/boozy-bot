@@ -6,6 +6,7 @@ const TelegramApiClient = require('./lib/telegram-api-client');
 const AddbApiClient = require('./lib/addb-api-client');
 const config = require('./lib/config');
 const logger = require('./lib/logger');
+const repository = require('./lib/repository');
 const queueLogger = logger.child({ source: 'queue' });
 const workerLogger = logger.child({ source: 'worker' });
 
@@ -82,16 +83,34 @@ function searchIngredients(inlineQuery) {
     });
 }
 
+function handleCommand(command, parameter) {
+  return Promise.resolve();
+}
+
+function processCommand(message) {
+  workerLogger.info(`Received bot command: ${message.text}`);
+  const commandEntity = message.entities[0];
+  const command = message.text.substr(commandEntity.offset + 1, commandEntity.length - 1);
+  const parameter = message.text.substr(commandEntity.offset + commandEntity.length).trim();
+  return Promise.all([
+    repository.addLoggedCommand(command, parameter, message.from)],
+    handleCommand(command, parameter)
+  );
+}
+
 updatesQueue.process(update => {
   // Handle inline ingredients search query.
   if (update.data.inline_query) {
     return searchIngredients(update.data.inline_query);
   }
 
-  // Handle selected ingredient.
-  if (update.data.chosen_inline_result) {
-    workerLogger.info(update.data, 'User selected inline query result');
-    return Promise.resolve();
+  // Handle bot command.
+  if (update.data.message &&
+    update.data.entities &&
+    update.data.entities.length &&
+    update.data.entities[0].type === 'bot_command'
+  ) {
+    processCommand(update.data)
   }
 
   // Just skip unrecognized update.
