@@ -6,7 +6,8 @@ const TelegramApiClient = require('./lib/telegram-api-client');
 const AddbApiClient = require('./lib/addb-api-client');
 const config = require('./lib/config');
 const logger = require('./lib/logger');
-const repository = require('./lib/repository');
+const Repository = require('./lib/repository');
+const repository = new Repository();
 const queueLogger = logger.child({ source: 'queue' });
 const workerLogger = logger.child({ source: 'worker' });
 
@@ -106,11 +107,11 @@ updatesQueue.process(update => {
 
   // Handle bot command.
   if (update.data.message &&
-    update.data.entities &&
-    update.data.entities.length &&
-    update.data.entities[0].type === 'bot_command'
+    update.data.message.entities &&
+    update.data.message.entities.length &&
+    update.data.message.entities[0].type === 'bot_command'
   ) {
-    processCommand(update.data)
+    processCommand(update.data.message);
   }
 
   // Just skip unrecognized update.
