@@ -75,7 +75,7 @@ function searchIngredients(inlineQuery) {
       inline_query_id: inlineQuery.id,
       results: [],
       switch_pm_text: 'Start typing an ingredient name. Tap for help.',
-      switch_pm_parameter: ''
+      switch_pm_parameter: 'hint'
     });
   }
 
