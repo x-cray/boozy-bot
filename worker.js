@@ -33,10 +33,10 @@ function handleCommand(chatId, user, command, parameter) {
       const randomSearch = samples[Math.floor(Math.random() * samples.length)];
       return telegramApiClient.sendMessage(chatId, 'Meet BoozyBot!', {
         inline_keyboard: [[{
-          text: `Try it: ${randomSearch}`,
+          text: `Try it now: ${randomSearch}`,
           switch_inline_query: randomSearch
         }]]
-      });
+      }, true);
     }
     case 'list':
       return repository.getIngredients(chatId)
