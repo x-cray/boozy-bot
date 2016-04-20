@@ -101,7 +101,7 @@ function searchIngredients(inlineQuery) {
       const inlineQueryAnswer = {
         inline_query_id: inlineQuery.id,
         cache_time: 10,
-        results: JSON.stringify(queryResults)
+        results: queryResults
       };
       const totalItems = parseInt(r.totalResult, 10) || 0;
       const isLastPage = totalItems - offset <= inlineResultsPerPage;
