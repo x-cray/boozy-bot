@@ -27,6 +27,16 @@ updatesQueue
   .on('failed', (job, err) => queueLogger.warn(err, `Job ${job.jobId} failed`))
   .on('stalled', job => queueLogger.warn(`Job ${job.jobId} stalled`));
 
+function getIngredientsMessage(ingredients) {
+  if (!ingredients.length) {
+    return 'No ingredients currently.';
+  }
+  const list = ingredients
+    .map(i => `- *${i.ingredientName}*. ${i.ingredientDescription}`)
+    .join('\n');
+  return `Currently known ingredients:\n${list}`;
+}
+
 function handleCommand(chatId, user, command, parameter) {
   switch (command) {
     case 'start': {
@@ -40,7 +50,7 @@ function handleCommand(chatId, user, command, parameter) {
     }
     case 'list':
       return repository.getIngredients(chatId)
-        .then(l => telegramApiClient.sendMessage(chatId, `Listing ${l.length} ingredients`));
+        .then(l => telegramApiClient.sendMessage(chatId, getIngredientsMessage(l)));
     case 'clear':
       return repository.clearIngredients(chatId)
         .then(telegramApiClient.sendMessage(chatId, 'Cleared available ingredients'));
@@ -49,10 +59,26 @@ function handleCommand(chatId, user, command, parameter) {
   }
 }
 
+function processNewIngredient(message) {
+  const codeEntity = message.entities[0];
+  const ingredientCode = message.text.substr(codeEntity.offset, codeEntity.length);
+  return addbApiClient.getIngredient(ingredientCode)
+    // TODO: Check for existing ingredient.
+    .then(i => repository.addIngredient(
+      ingredientCode,
+      i.name,
+      i.description,
+      message.chat.id,
+      message.from
+    ));
+}
+
 function processCommand(message) {
   workerLogger.info(`Received bot command: ${message.text}`);
   const commandEntity = message.entities[0];
-  const command = message.text.substr(commandEntity.offset + 1, commandEntity.length - 1);
+  const fullCommand = message.text.substr(commandEntity.offset + 1, commandEntity.length - 1);
+  const atIndex = fullCommand.indexOf('@');
+  const command = ~~atIndex ? fullCommand.substr(0, atIndex) : fullCommand;
   const parameter = message.text.substr(commandEntity.offset + commandEntity.length).trim();
   return Promise.all([
     repository.addLoggedCommand(command, parameter, message.from),
@@ -119,22 +145,27 @@ function searchIngredients(inlineQuery) {
 }
 
 updatesQueue.process(update => {
+  const data = update.data;
+
   // Handle inline ingredients search query.
-  if (update.data.inline_query) {
-    return searchIngredients(update.data.inline_query);
+  if (data.inline_query) {
+    return searchIngredients(data.inline_query);
   }
 
-  // Handle bot command.
-  if (update.data.message &&
-    update.data.message.entities &&
-    update.data.message.entities.length &&
-    update.data.message.entities[0].type === 'bot_command'
-  ) {
-    return processCommand(update.data.message);
+  if (data.message && data.message.entities && data.message.entities.length) {
+    // Handle bot command.
+    if (data.message.entities[0].type === 'bot_command') {
+      return processCommand(data.message);
+    }
+
+    // Handle chosen ingredient message.
+    if (data.message.text.startsWith('/add') && data.message.entities[0].type === 'bold') {
+      return processNewIngredient(data.message);
+    }
   }
 
-  // Just skip unrecognized update.
-  workerLogger.debug(update.data, 'Skipping update');
+  // ... or just skip unrecognized update.
+  workerLogger.debug(data, 'Skipping update');
   return Promise.resolve();
 });
 
