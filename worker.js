@@ -18,6 +18,7 @@ const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.re
 const telegramApiClient = new TelegramApiClient(botConfig.token);
 const addbApiClient = new AddbApiClient(addbConfig.key);
 const inlineResultsPerPage = 10;
+const samples = ['orange', 'vodka', 'lime', 'rum', 'ice', 'mint', 'cinnamon', 'aperol', 'syrup'];
 
 updatesQueue
   .on('ready', () => queueLogger.info('Queue is ready to process jobs'))
@@ -26,68 +27,17 @@ updatesQueue
   .on('failed', (job, err) => queueLogger.warn(err, `Job ${job.jobId} failed`))
   .on('stalled', job => queueLogger.warn(`Job ${job.jobId} stalled`));
 
-function getChosenIngredientMessage(ingredient) {
-  return `/add@${botConfig.name} *${ingredient.id}*.
-I've got [${ingredient.name}](http://www.absolutdrinks.com/en/drinks/with/${ingredient.id}/).`;
-}
-
-function searchIngredients(inlineQuery) {
-  workerLogger.info(inlineQuery, 'Processing inline query update');
-  const offset = parseInt(inlineQuery.offset, 10) || 0;
-
-  // Display inline mode help button.
-  if (!inlineQuery.query) {
-    return telegramApiClient.sendInlineQueryAnswer({
-      inline_query_id: inlineQuery.id,
-      results: [],
-      switch_pm_text: 'Start typing an ingredient name. Tap for help.',
-      switch_pm_parameter: 'inline-hint'
-    });
-  }
-
-  // Return list of found ingredients.
-  return addbApiClient.searchIngredients(inlineQuery.query, offset, inlineResultsPerPage)
-    .then(r => {
-      if (r.result && r.result.length) {
-        const queryResults = r.result.map(ingredient => ({
-          type: 'article',
-          id: ingredient.id,
-          title: ingredient.name,
-          description: ingredient.description,
-          url: `http://www.absolutdrinks.com/en/drinks/with/${ingredient.id}/`,
-          thumb_url: `http://assets.absolutdrinks.com/ingredients/200x200/${ingredient.id}.png`,
-          thumb_width: 200,
-          thumb_height: 200,
-          input_message_content: {
-            message_text: getChosenIngredientMessage(ingredient),
-            parse_mode: 'Markdown',
-            disable_web_page_preview: true
-          }
-        }));
-        const inlineQueryAnswer = {
-          inline_query_id: inlineQuery.id,
-          cache_time: 1,
-          results: JSON.stringify(queryResults)
-        };
-        const totalItems = parseInt(r.totalResult, 10) || 0;
-        const isLastPage = totalItems - offset <= inlineResultsPerPage;
-        let nextOffset = offset;
-        if (!isLastPage) {
-          nextOffset += inlineResultsPerPage;
-        }
-        if (nextOffset) {
-          inlineQueryAnswer.next_offset = nextOffset;
-        }
-        return telegramApiClient.sendInlineQueryAnswer(inlineQueryAnswer);
-      }
-      return Promise.resolve();
-    });
-}
-
 function handleCommand(chatId, user, command, parameter) {
   switch (command) {
-    case 'start':
-      return telegramApiClient.sendMessage(chatId, 'Meet BoozyBot!');
+    case 'start': {
+      const randomSearch = samples[Math.floor(Math.random() * samples.length)];
+      return telegramApiClient.sendMessage(chatId, 'Meet BoozyBot!', {
+        inline_keyboard: [[{
+          text: `Try it: ${randomSearch}`,
+          switch_inline_query: randomSearch
+        }]]
+      });
+    }
     case 'list':
       return repository.getIngredients(chatId)
         .then(l => telegramApiClient.sendMessage(chatId, `Listing ${l.length} ingredients`));
@@ -108,6 +58,64 @@ function processCommand(message) {
     repository.addLoggedCommand(command, parameter, message.from),
     handleCommand(message.chat.id, message.from, command, parameter)
   ]);
+}
+
+function getChosenIngredientMessage(ingredient) {
+  return `/add@${botConfig.name} *${ingredient.id}*.
+I've got [${ingredient.name}](http://www.absolutdrinks.com/en/drinks/with/${ingredient.id}/).`;
+}
+
+function searchIngredients(inlineQuery) {
+  workerLogger.info(inlineQuery, 'Processing inline query update');
+  const offset = parseInt(inlineQuery.offset, 10) || 0;
+
+  // Display inline mode help button.
+  if (!inlineQuery.query) {
+    return telegramApiClient.sendInlineQueryAnswer({
+      inline_query_id: inlineQuery.id,
+      results: [],
+      switch_pm_text: 'Start typing an ingredient name. Tap for help.',
+      switch_pm_parameter: ''
+    });
+  }
+
+  // Return list of found ingredients.
+  return addbApiClient.searchIngredients(inlineQuery.query, offset, inlineResultsPerPage)
+  .then(r => {
+    if (r.result && r.result.length) {
+      const queryResults = r.result.map(ingredient => ({
+        type: 'article',
+        id: ingredient.id,
+        title: ingredient.name,
+        description: ingredient.description,
+        url: `http://www.absolutdrinks.com/en/drinks/with/${ingredient.id}/`,
+        thumb_url: `http://assets.absolutdrinks.com/ingredients/200x200/${ingredient.id}.png`,
+        thumb_width: 200,
+        thumb_height: 200,
+        input_message_content: {
+          message_text: getChosenIngredientMessage(ingredient),
+          parse_mode: 'Markdown',
+          disable_web_page_preview: true
+        }
+      }));
+      const inlineQueryAnswer = {
+        inline_query_id: inlineQuery.id,
+        cache_time: 10,
+        results: JSON.stringify(queryResults)
+      };
+      const totalItems = parseInt(r.totalResult, 10) || 0;
+      const isLastPage = totalItems - offset <= inlineResultsPerPage;
+      let nextOffset = offset;
+      if (!isLastPage) {
+        nextOffset += inlineResultsPerPage;
+      }
+      if (nextOffset) {
+        inlineQueryAnswer.next_offset = nextOffset;
+      }
+      return telegramApiClient.sendInlineQueryAnswer(inlineQueryAnswer);
+    }
+    return Promise.resolve();
+  });
 }
 
 updatesQueue.process(update => {
