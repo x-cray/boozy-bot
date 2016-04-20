@@ -84,8 +84,19 @@ function searchIngredients(inlineQuery) {
     });
 }
 
-function handleCommand(command, parameter) {
-  return Promise.resolve();
+function handleCommand(chatId, user, command, parameter) {
+  switch (command) {
+    case 'start':
+      return telegramApiClient.sendMessage(chatId, 'Meet BoozyBot!');
+    case 'list':
+      return repository.getIngredients(chatId)
+        .then(l => telegramApiClient.sendMessage(chatId, `Listing ${l.length} ingredients`));
+    case 'clear':
+      return repository.clearIngredients(chatId)
+        .then(telegramApiClient.sendMessage(chatId, 'Cleared available ingredients'));
+    default:
+      return Promise.resolve();
+  }
 }
 
 function processCommand(message) {
@@ -94,9 +105,9 @@ function processCommand(message) {
   const command = message.text.substr(commandEntity.offset + 1, commandEntity.length - 1);
   const parameter = message.text.substr(commandEntity.offset + commandEntity.length).trim();
   return Promise.all([
-    repository.addLoggedCommand(command, parameter, message.from)],
-    handleCommand(command, parameter)
-  );
+    repository.addLoggedCommand(command, parameter, message.from),
+    handleCommand(message.chat.id, message.from, command, parameter)
+  ]);
 }
 
 updatesQueue.process(update => {
@@ -111,11 +122,11 @@ updatesQueue.process(update => {
     update.data.message.entities.length &&
     update.data.message.entities[0].type === 'bot_command'
   ) {
-    processCommand(update.data.message);
+    return processCommand(update.data.message);
   }
 
   // Just skip unrecognized update.
-  workerLogger.info(update.data, 'Skipping update');
+  workerLogger.debug(update.data, 'Skipping update');
   return Promise.resolve();
 });
 
