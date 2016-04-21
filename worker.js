@@ -37,7 +37,8 @@ function getIngredientImageURL(ingredientCode) {
 
 function getIngredientsMessage(ingredients) {
   if (!ingredients.length) {
-    return `No ingredients currently. Tap on my name (@${botConfig.name}) and type your ingredient`;
+    return `No ingredients currently. Type '@${botConfig.name}'` +
+      'and your ingredient in the message field.';
   }
   const list = ingredients
     .map(i => `- *${i.ingredientName}* [(details)](${getIngredientURL(i.ingredientCode)})`)
@@ -48,6 +49,16 @@ ${list}
 Hit /search to find matching drink recipes.
 You may remove individual ingredients with /remove or start over with /clear.`;
 
+  return message;
+}
+
+function getRemoveIngredientMessage(ingredients) {
+  if (!ingredients.length) {
+    return 'No ingredients currently. Nothing to remove.';
+  }
+  const keys = ingredients
+    .map(i => `- *${i.ingredientName}* [(details)](${getIngredientURL(i.ingredientCode)})`)
+    .join('\n');
   return message;
 }
 
@@ -75,10 +86,12 @@ function handleCommand(chatId, user, command, parameter) {
         'on what ingredients you have in your bar. Add me to the group chat and I\'ll suggest ' +
         'you recipes for ingredients people have in sum.\n' +
         'And yes, you have to be at least 18 years old and drink responsibly 🍸';
+      const randomSearch = samples[Math.floor(Math.random() * samples.length)];
       if (!showHint) {
-        introMessage += '\n\nStart typing your ingredient following my nickname in the message box.'
+        introMessage +=
+          '\n\nFor example, ' +
+          `in any of your chats type '@${botConfig.name} ${randomSearch}' in the message field.`;
       } else {
-        const randomSearch = samples[Math.floor(Math.random() * samples.length)];
         replyMarkup = {
           inline_keyboard: [[{
             text: `Try it now: ${randomSearch}`,
@@ -91,6 +104,9 @@ function handleCommand(chatId, user, command, parameter) {
     case 'list':
       return repository.getIngredients(chatId)
         .then(l => telegramApiClient.sendMessage(chatId, getIngredientsMessage(l)));
+    case 'remove':
+      return repository.getIngredients(chatId)
+        .then(l => telegramApiClient.sendMessage(chatId, getRemoveIngredientMessage(l)));
     case 'clear':
       return repository.clearIngredients(chatId)
         .then(telegramApiClient.sendMessage(chatId, 'Cleared available ingredients'));
