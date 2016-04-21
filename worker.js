@@ -27,26 +27,66 @@ updatesQueue
   .on('failed', (job, err) => queueLogger.warn(err, `Job ${job.jobId} failed`))
   .on('stalled', job => queueLogger.warn(`Job ${job.jobId} stalled`));
 
+function getIngredientURL(ingredientCode) {
+  return `http://www.absolutdrinks.com/en/drinks/with/${ingredientCode}/`;
+}
+
+function getIngredientImageURL(ingredientCode) {
+  return `http://assets.absolutdrinks.com/ingredients/200x200/${ingredientCode}.png`;
+}
+
 function getIngredientsMessage(ingredients) {
   if (!ingredients.length) {
-    return 'No ingredients currently.';
+    return `No ingredients currently. Tap on my name (@${botConfig.name}) and type your ingredient`;
   }
   const list = ingredients
-    .map(i => `- *${i.ingredientName}*. ${i.ingredientDescription}`)
+    .map(i => `- *${i.ingredientName}* [(details)](${getIngredientURL(i.ingredientCode)})`)
     .join('\n');
-  return `Currently known ingredients:\n${list}`;
+  const message =
+`Currently known ingredients:
+${list}
+Hit /search to find matching drink recipes.
+You may remove individual ingredients with /remove or start over with /clear.`;
+
+  return message;
+}
+
+function processNewIngredient(message) {
+  const codeEntity = message.entities[0];
+  const ingredientCode = message.text.substr(codeEntity.offset, codeEntity.length);
+  return addbApiClient.getIngredient(ingredientCode)
+  // TODO: Check for existing ingredient.
+  .then(i => repository.addIngredient(
+    ingredientCode,
+    i.name,
+    i.description,
+    message.chat.id,
+    message.from
+  ));
 }
 
 function handleCommand(chatId, user, command, parameter) {
   switch (command) {
     case 'start': {
-      const randomSearch = samples[Math.floor(Math.random() * samples.length)];
-      return telegramApiClient.sendMessage(chatId, 'Meet BoozyBot!', {
-        inline_keyboard: [[{
-          text: `Try it now: ${randomSearch}`,
-          switch_inline_query: randomSearch
-        }]]
-      }, true);
+      const showHint = parameter === 'hint';
+      let replyMarkup = null;
+      let introMessage =
+        '🎉 Hey! I\'m here to help you to come up with party drink ideas based ' +
+        'on what ingredients you have in your bar. Add me to the group chat and I\'ll suggest ' +
+        'you recipes for ingredients people have in sum.\n' +
+        'And yes, you have to be at least 18 years old and drink responsibly 🍸';
+      if (!showHint) {
+        introMessage += '\n\nStart typing your ingredient following my nickname in the message box.'
+      } else {
+        const randomSearch = samples[Math.floor(Math.random() * samples.length)];
+        replyMarkup = {
+          inline_keyboard: [[{
+            text: `Try it now: ${randomSearch}`,
+            switch_inline_query: randomSearch
+          }]]
+        };
+      }
+      return telegramApiClient.sendMessage(chatId, introMessage, replyMarkup, true);
     }
     case 'list':
       return repository.getIngredients(chatId)
@@ -55,22 +95,9 @@ function handleCommand(chatId, user, command, parameter) {
       return repository.clearIngredients(chatId)
         .then(telegramApiClient.sendMessage(chatId, 'Cleared available ingredients'));
     default:
+      workerLogger.warn(`Unrecognized command ${command}`);
       return Promise.resolve();
   }
-}
-
-function processNewIngredient(message) {
-  const codeEntity = message.entities[0];
-  const ingredientCode = message.text.substr(codeEntity.offset, codeEntity.length);
-  return addbApiClient.getIngredient(ingredientCode)
-    // TODO: Check for existing ingredient.
-    .then(i => repository.addIngredient(
-      ingredientCode,
-      i.name,
-      i.description,
-      message.chat.id,
-      message.from
-    ));
 }
 
 function processCommand(message) {
@@ -78,7 +105,7 @@ function processCommand(message) {
   const commandEntity = message.entities[0];
   const fullCommand = message.text.substr(commandEntity.offset + 1, commandEntity.length - 1);
   const atIndex = fullCommand.indexOf('@');
-  const command = ~~atIndex ? fullCommand.substr(0, atIndex) : fullCommand;
+  const command = ~atIndex ? fullCommand.substr(0, atIndex) : fullCommand;
   const parameter = message.text.substr(commandEntity.offset + commandEntity.length).trim();
   return Promise.all([
     repository.addLoggedCommand(command, parameter, message.from),
@@ -87,8 +114,10 @@ function processCommand(message) {
 }
 
 function getChosenIngredientMessage(ingredient) {
-  return `/add@${botConfig.name} *${ingredient.id}*.
+  const message =
+`/add@${botConfig.name} *${ingredient.id}*.
 I've got [${ingredient.name}](http://www.absolutdrinks.com/en/drinks/with/${ingredient.id}/).`;
+  return message;
 }
 
 function searchIngredients(inlineQuery) {
@@ -114,8 +143,8 @@ function searchIngredients(inlineQuery) {
         id: ingredient.id,
         title: ingredient.name,
         description: ingredient.description,
-        url: `http://www.absolutdrinks.com/en/drinks/with/${ingredient.id}/`,
-        thumb_url: `http://assets.absolutdrinks.com/ingredients/200x200/${ingredient.id}.png`,
+        url: getIngredientURL(ingredient.id),
+        thumb_url: getIngredientImageURL(ingredient.id),
         thumb_width: 200,
         thumb_height: 200,
         input_message_content: {
