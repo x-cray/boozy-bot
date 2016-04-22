@@ -16,8 +16,15 @@ co(function* enqueueBotUpdates() {
   while (true) { // eslint-disable-line no-constant-condition
     try {
       const updates = yield apiClient.getUpdates();
-      if (updates.length) {
-        updates.forEach(updatesQueue.add.bind(updatesQueue));
+      if (updates && updates.length) {
+        updates.forEach(u => updatesQueue.add(u, {
+          attempts: 5,
+          timeout: 10000,
+          backoff: {
+            type: 'exponential',
+            delay: 100
+          }
+        }));
       }
     } catch (e) {
       logger.error(e);

@@ -18,7 +18,25 @@ const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.re
 const telegramApiClient = new TelegramApiClient(botConfig.token);
 const addbApiClient = new AddbApiClient(addbConfig.key);
 const inlineResultsPerPage = 10;
+const ingredientCodeRegEx = /^.*\((.+)\)$/ig;
 const samples = ['orange', 'vodka', 'lime', 'rum', 'ice', 'mint', 'cinnamon', 'aperol', 'syrup'];
+const ingredientTypeIcons = {
+  BaseSpirit: '',
+  berries: '🍓',
+  brandy: '',
+  decoration: '',
+  fruits: '🍐',
+  gin: '',
+  ice: '',
+  mixers: '',
+  others: '',
+  rum: '',
+  'spices-herbs': '',
+  'spirits-other': '',
+  tequila: '',
+  vodka: '',
+  whisky: '',
+};
 
 updatesQueue
   .on('ready', () => queueLogger.info('Queue is ready to process jobs'))
@@ -35,81 +53,162 @@ function getIngredientImageURL(ingredientCode) {
   return `http://assets.absolutdrinks.com/ingredients/200x200/${ingredientCode}.png`;
 }
 
-function getIngredientsMessage(ingredients) {
-  if (!ingredients.length) {
-    return `No ingredients currently. Type '@${botConfig.name}'` +
-      'and your ingredient in the message field.';
-  }
-  const list = ingredients
-    .map(i => `- *${i.ingredientName}* [(details)](${getIngredientURL(i.ingredientCode)})`)
-    .join('\n');
-  const message =
-`Currently known ingredients:
-${list}
-Hit /search to find matching drink recipes.
-You may remove individual ingredients with /remove or start over with /clear.`;
+function getRandomIngredient() {
+  return samples[Math.floor(Math.random() * samples.length)];
+}
 
+function getChosenIngredientMessage(ingredient) {
+  const message =
+    `/add@${botConfig.name} *${ingredient.id}*. ` +
+    `I've got [${ingredient.name}](${getIngredientURL(ingredient.id)}).`;
   return message;
 }
 
-function getRemoveIngredientMessage(ingredients) {
-  if (!ingredients.length) {
-    return 'No ingredients currently. Nothing to remove.';
-  }
-  const keys = ingredients
+function getClearedIngredientsMessage() {
+  return 'Cleared available ingredients.';
+}
+
+function getRemoveIngredientMessage() {
+  return 'Which ingredient you would like to remove?';
+}
+
+function getRemovedIngredientMessage(ingredient) {
+  return `Removed ${ingredient}.`;
+}
+
+function getInlineHelpMessage() {
+  return 'Start typing an ingredient name. Tap for help.';
+}
+
+function getIngredientsListMessage(ingredients) {
+  const list = ingredients
     .map(i => `- *${i.ingredientName}* [(details)](${getIngredientURL(i.ingredientCode)})`)
     .join('\n');
-  return message;
+  const msg =
+    `Currently chosen ingredients:\n${list}\n` +
+    'Hit /search to find matching drink recipes.\n' +
+    'You may want to remove individual ingredients with /remove or start over with /clear.';
+  return msg;
+}
+
+function getIntroductionMessage(helpMessage) {
+  const msg =
+    '🎉 Hey! I\'m here to help you to come up with party drink ideas based ' +
+    'on which ingredients you have in your bar. Add me to the group chat and I\'ll suggest ' +
+    'you recipes for ingredients people have in sum.\n' +
+    'And yes, you have to be at least 18 years old and drink responsibly 🍸' +
+    `\n\nTo try, ${helpMessage}`;
+  return msg;
+}
+
+function getActionHelp(chat) {
+  const randomSearch = getRandomIngredient();
+  return {
+    message: `in any of your chats type '@${botConfig.name} ${randomSearch}' ` +
+    'in the message field as an example.',
+    replyMarkup: chat.type === 'private' ? {
+      inline_keyboard: [[{
+        text: `Try it now: ${randomSearch}`,
+        switch_inline_query: randomSearch
+      }]]
+    } : null
+  };
+}
+
+function sendNoChosenIngredientsMessage(chat) {
+  const actionHelp = getActionHelp(chat);
+  const msg = `No ingredients are chosen currently. To add one, ${actionHelp.message}`;
+  return telegramApiClient.sendMessage(chat.id, msg, actionHelp.replyMarkup);
 }
 
 function processNewIngredient(message) {
   const codeEntity = message.entities[0];
   const ingredientCode = message.text.substr(codeEntity.offset, codeEntity.length);
   return addbApiClient.getIngredient(ingredientCode)
-  // TODO: Check for existing ingredient.
-  .then(i => repository.addIngredient(
-    ingredientCode,
-    i.name,
-    i.description,
-    message.chat.id,
-    message.from
-  ));
+    // TODO: Check for existing ingredient.
+    // TODO: Check for total maximum number of ingredients.
+    .then(i => repository.addIngredient(
+      ingredientCode,
+      i.name,
+      i.type,
+      i.description,
+      message.chat.id,
+      message.from
+    ));
 }
 
-function handleCommand(chatId, user, command, parameter) {
+function parseIngredientCode(messageText) {
+  if (typeof messageText === 'string') {
+    const matches = messageText.match(ingredientCodeRegEx);
+    console.log(matches);
+    if (matches && matches.length) {
+      return matches[1];
+    }
+  }
+
+  return null;
+}
+
+function processIngredientRemoval(ingredientCode, message) {
+  return repository.removeIngredient(message.chat.id, ingredientCode)
+    .then(repository.setChatMode(message.chat.id, ''))
+    .then(telegramApiClient.sendMessage(
+      message.chat.id,
+      getRemovedIngredientMessage(message.text), {
+        hide_keyboard: true,
+        selective: true
+      }
+    ));
+}
+
+function handleCommand(command, parameter, messageId, chat, user) {
   switch (command) {
     case 'start': {
-      const showHint = parameter === 'hint';
-      let replyMarkup = null;
-      let introMessage =
-        '🎉 Hey! I\'m here to help you to come up with party drink ideas based ' +
-        'on what ingredients you have in your bar. Add me to the group chat and I\'ll suggest ' +
-        'you recipes for ingredients people have in sum.\n' +
-        'And yes, you have to be at least 18 years old and drink responsibly 🍸';
-      const randomSearch = samples[Math.floor(Math.random() * samples.length)];
-      if (!showHint) {
-        introMessage +=
-          '\n\nFor example, ' +
-          `in any of your chats type '@${botConfig.name} ${randomSearch}' in the message field.`;
-      } else {
-        replyMarkup = {
-          inline_keyboard: [[{
-            text: `Try it now: ${randomSearch}`,
-            switch_inline_query: randomSearch
-          }]]
-        };
-      }
-      return telegramApiClient.sendMessage(chatId, introMessage, replyMarkup, true);
+      const actionHelp = getActionHelp(chat);
+      return telegramApiClient.sendMessage(
+        chat.id,
+        getIntroductionMessage(actionHelp.message),
+        actionHelp.replyMarkup
+      );
     }
-    case 'list':
-      return repository.getIngredients(chatId)
-        .then(l => telegramApiClient.sendMessage(chatId, getIngredientsMessage(l)));
+    case 'list': {
+      return repository.getIngredients(chat.id)
+        .then(ingredients => {
+          if (!ingredients.length) {
+            return sendNoChosenIngredientsMessage(chat);
+          }
+          return telegramApiClient.sendMessage(
+            chat.id,
+            getIngredientsListMessage(ingredients)
+          );
+        });
+    }
     case 'remove':
-      return repository.getIngredients(chatId)
-        .then(l => telegramApiClient.sendMessage(chatId, getRemoveIngredientMessage(l)));
+      return repository.getIngredients(chat.id)
+        .then(ingredients => {
+          if (!ingredients.length) {
+            return sendNoChosenIngredientsMessage(chat);
+          }
+          const replyMarkup = {
+            keyboard: ingredients.map(i => [`${i.ingredientName} (${i.ingredientCode})`]),
+            resize_keyboard: true,
+            one_time_keyboard: true,
+            selective: true
+          };
+          return repository.setChatMode(chat.id, 'remove')
+            .then(telegramApiClient.sendMessage(
+              chat.id,
+              getRemoveIngredientMessage(),
+              replyMarkup,
+              messageId
+            ));
+        });
     case 'clear':
-      return repository.clearIngredients(chatId)
-        .then(telegramApiClient.sendMessage(chatId, 'Cleared available ingredients'));
+      return repository.clearIngredients(chat.id)
+        .then(telegramApiClient.sendMessage(
+          chat.id,
+          getClearedIngredientsMessage()
+        ));
     default:
       workerLogger.warn(`Unrecognized command ${command}`);
       return Promise.resolve();
@@ -125,18 +224,11 @@ function processCommand(message) {
   const parameter = message.text.substr(commandEntity.offset + commandEntity.length).trim();
   return Promise.all([
     repository.addLoggedCommand(command, parameter, message.from),
-    handleCommand(message.chat.id, message.from, command, parameter)
+    handleCommand(command, parameter, message.message_id, message.chat, message.from)
   ]);
 }
 
-function getChosenIngredientMessage(ingredient) {
-  const message =
-`/add@${botConfig.name} *${ingredient.id}*.
-I've got [${ingredient.name}](http://www.absolutdrinks.com/en/drinks/with/${ingredient.id}/).`;
-  return message;
-}
-
-function searchIngredients(inlineQuery) {
+function processInlineQuery(inlineQuery) {
   workerLogger.info(inlineQuery, 'Processing inline query update');
   const offset = parseInt(inlineQuery.offset, 10) || 0;
 
@@ -145,7 +237,7 @@ function searchIngredients(inlineQuery) {
     return telegramApiClient.sendInlineQueryAnswer({
       inline_query_id: inlineQuery.id,
       results: [],
-      switch_pm_text: 'Start typing an ingredient name. Tap for help.',
+      switch_pm_text: getInlineHelpMessage(),
       switch_pm_parameter: 'hint'
     });
   }
@@ -171,7 +263,6 @@ function searchIngredients(inlineQuery) {
       }));
       const inlineQueryAnswer = {
         inline_query_id: inlineQuery.id,
-        cache_time: 10,
         results: queryResults
       };
       const totalItems = parseInt(r.totalResult, 10) || 0;
@@ -191,26 +282,47 @@ function searchIngredients(inlineQuery) {
 
 updatesQueue.process(update => {
   const data = update.data;
+  workerLogger.debug(data, 'Received an update');
 
   // Handle inline ingredients search query.
   if (data.inline_query) {
-    return searchIngredients(data.inline_query);
+    return processInlineQuery(data.inline_query);
   }
 
-  if (data.message && data.message.entities && data.message.entities.length) {
-    // Handle bot command.
-    if (data.message.entities[0].type === 'bot_command') {
-      return processCommand(data.message);
+  if (data.message) {
+    if (data.message.entities && data.message.entities.length) {
+      // Handle bot command.
+      if (data.message.entities[0].type === 'bot_command') {
+        return processCommand(data.message);
+      }
+
+      // Handle chosen ingredient message.
+      if (data.message.text.startsWith('/add') && data.message.entities[0].type === 'bold') {
+        return processNewIngredient(data.message);
+      }
     }
 
-    // Handle chosen ingredient message.
-    if (data.message.text.startsWith('/add') && data.message.entities[0].type === 'bold') {
-      return processNewIngredient(data.message);
+    // Try to guess ingredient code from the message.
+    const ingredientCode = parseIngredientCode(data.message.text);
+    if (ingredientCode) {
+      // It's possible that user tries tu remove an ingredient. Check chat mode.
+      return repository.getChatMode(data.message.chat.id).then(chatMode => {
+        if (chatMode === 'remove') {
+          // Handle ingredient removal.
+          return processIngredientRemoval(ingredientCode, data.message);
+        }
+
+        // False alarm, just skip this update.
+        workerLogger.debug(
+          `Skipping update ${data.update_id} with ingredient code, was not in any related mode`
+        );
+        return Promise.resolve();
+      });
     }
   }
 
   // ... or just skip unrecognized update.
-  workerLogger.debug(data, 'Skipping update');
+  workerLogger.debug(`Skipping update ${data.update_id}`);
   return Promise.resolve();
 });
 
