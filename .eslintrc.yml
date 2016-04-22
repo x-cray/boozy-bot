@@ -4,3 +4,4 @@ env:
 rules:
   no-console: off
   comma-dangle: ofF
+  no-param-reassign: off

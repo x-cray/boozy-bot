@@ -18,24 +18,48 @@ const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.re
 const telegramApiClient = new TelegramApiClient(botConfig.token);
 const addbApiClient = new AddbApiClient(addbConfig.key);
 const inlineResultsPerPage = 10;
-const ingredientCodeRegEx = /^.*\((.+)\)$/ig;
+const maxFoundDrinks = 2;
+const ingredientCodeRegEx = /^.*\((.+)\)$/;
 const samples = ['orange', 'vodka', 'lime', 'rum', 'ice', 'mint', 'cinnamon', 'aperol', 'syrup'];
-const ingredientTypeIcons = {
-  BaseSpirit: '',
-  berries: '🍓',
-  brandy: '',
-  decoration: '',
-  fruits: '🍐',
-  gin: '',
-  ice: '',
-  mixers: '',
-  others: '',
-  rum: '',
-  'spices-herbs': '',
-  'spirits-other': '',
-  tequila: '',
-  vodka: '',
-  whisky: '',
+const ingredientTypes = {
+  BaseSpirit: {
+  },
+  berries: {
+    icon: '🍓',
+    notSignificant: true
+  },
+  brandy: {
+  },
+  decoration: {
+    notSignificant: true
+  },
+  fruits: {
+    icon: '🍐',
+    notSignificant: true
+  },
+  gin: {
+  },
+  ice: {
+    notSignificant: true
+  },
+  mixers: {
+    notSignificant: true
+  },
+  others: {
+    notSignificant: true
+  },
+  rum: {
+  },
+  'spices-herbs': {
+  },
+  'spirits-other': {
+  },
+  tequila: {
+  },
+  vodka: {
+  },
+  whisky: {
+  },
 };
 
 updatesQueue
@@ -53,15 +77,20 @@ function getIngredientImageURL(ingredientCode) {
   return `http://assets.absolutdrinks.com/ingredients/200x200/${ingredientCode}.png`;
 }
 
+function getDrinkURL(drinkId) {
+  return `http://www.absolutdrinks.com/en/drinks/${drinkId}`;
+}
+
+function getDrinkImageURL(drinkId) {
+  return `http://assets.absolutdrinks.com/drinks/200x200/${drinkId}.png`;
+}
+
 function getRandomIngredient() {
   return samples[Math.floor(Math.random() * samples.length)];
 }
 
 function getChosenIngredientMessage(ingredient) {
-  const message =
-    `/add@${botConfig.name} *${ingredient.id}*. ` +
-    `I've got [${ingredient.name}](${getIngredientURL(ingredient.id)}).`;
-  return message;
+  return `/add@${botConfig.name} *${ingredient.id}*.`;
 }
 
 function getClearedIngredientsMessage() {
@@ -80,9 +109,17 @@ function getInlineHelpMessage() {
   return 'Start typing an ingredient name. Tap for help.';
 }
 
-function getIngredientsListMessage(ingredients) {
+function getIngredientListItem(item, isPrivate) {
+  let base = `- *${item.ingredientName}* [(details)](${getIngredientURL(item.ingredientCode)})`;
+  if (!isPrivate) {
+    base += ` by ${item.getFullName()}`;
+  }
+  return base;
+}
+
+function getIngredientsListMessage(ingredients, isPrivate) {
   const list = ingredients
-    .map(i => `- *${i.ingredientName}* [(details)](${getIngredientURL(i.ingredientCode)})`)
+    .map(i => getIngredientListItem(i, isPrivate))
     .join('\n');
   const msg =
     `Currently chosen ingredients:\n${list}\n` +
@@ -95,7 +132,7 @@ function getIntroductionMessage(helpMessage) {
   const msg =
     '🎉 Hey! I\'m here to help you to come up with party drink ideas based ' +
     'on which ingredients you have in your bar. Add me to the group chat and I\'ll suggest ' +
-    'you recipes for ingredients people have in sum.\n' +
+    'you recipes for ingredients people have on hand.\n' +
     'And yes, you have to be at least 18 years old and drink responsibly 🍸' +
     `\n\nTo try, ${helpMessage}`;
   return msg;
@@ -140,12 +177,10 @@ function processNewIngredient(message) {
 function parseIngredientCode(messageText) {
   if (typeof messageText === 'string') {
     const matches = messageText.match(ingredientCodeRegEx);
-    console.log(matches);
     if (matches && matches.length) {
       return matches[1];
     }
   }
-
   return null;
 }
 
@@ -154,11 +189,57 @@ function processIngredientRemoval(ingredientCode, message) {
     .then(repository.setChatMode(message.chat.id, ''))
     .then(telegramApiClient.sendMessage(
       message.chat.id,
-      getRemovedIngredientMessage(message.text), {
-        hide_keyboard: true,
-        selective: true
-      }
+      getRemovedIngredientMessage(message.text)
     ));
+}
+
+function pickMatchingDrinks(foundDrinks, ingredientHash) {
+  if (foundDrinks.result && foundDrinks.result.length) {
+    const sorted = foundDrinks.result.sort((a, b) => b.rating - a.rating);
+    return sorted.slice(0, maxFoundDrinks);
+  }
+  return [];
+}
+
+function getDrinkVideoURL(drink) {
+  if (drink.videos) {
+    const youtube = drink.videos.find(el => el.type === 'youtube');
+    if (youtube) {
+      return `http://www.youtube.com/watch?v=${youtube.video}`;
+    }
+  }
+  return null;
+}
+
+function getDrinkIngredients(drink, ingredientHash) {
+  const existingIngredients = [];
+  const ingredientsToGet = [];
+  drink.ingredients.forEach(i => {
+    if (i.id in ingredientHash) {
+      existingIngredients.push(i.textPlain);
+    } else {
+      ingredientsToGet.push(i.textPlain);
+    }
+  });
+  return {
+    existing: existingIngredients.join(', '),
+    toGet: ingredientsToGet.join(', ')
+  };
+}
+
+function sendDrinkToChat(chatId, drink, ingredientHash) {
+  console.log('Sending drink to chat', drink);
+  const ingredients = getDrinkIngredients(drink, ingredientHash);
+  let message = `*${drink.name}* ` +
+    `[(picture)](${getDrinkImageURL(drink.id)}) ` +
+    `[(details)](${getDrinkURL(drink.id)})\n` +
+    `*You have:* ${ingredients.existing}; *you'll have to get:* ${ingredients.toGet}\n` +
+    `*Directions:* ${drink.descriptionPlain}`;
+  const videoURL = getDrinkVideoURL(drink);
+  if (videoURL) {
+    message += `\n[Watch the video](${videoURL})`;
+  }
+  return telegramApiClient.sendMessage(chatId, message, null, null, true);
 }
 
 function handleCommand(command, parameter, messageId, chat, user) {
@@ -179,7 +260,7 @@ function handleCommand(command, parameter, messageId, chat, user) {
           }
           return telegramApiClient.sendMessage(
             chat.id,
-            getIngredientsListMessage(ingredients)
+            getIngredientsListMessage(ingredients, chat.type === 'private')
           );
         });
     }
@@ -201,6 +282,23 @@ function handleCommand(command, parameter, messageId, chat, user) {
               getRemoveIngredientMessage(),
               replyMarkup,
               messageId
+            ));
+        });
+    case 'search':
+      return repository.getIngredients(chat.id)
+        .then(ingredients => {
+          if (!ingredients.length) {
+            return sendNoChosenIngredientsMessage(chat);
+          }
+          const ingredientCodes = ingredients.map(i => i.ingredientCode);
+          const ingredientHash = ingredientCodes.reduce((memo, item) => {
+            memo[item] = true;
+            return memo;
+          }, {});
+          return addbApiClient.getDrinks(ingredientCodes)
+            .then(drinks => pickMatchingDrinks(drinks, ingredientHash))
+            .then(drinks => Promise.all(
+              drinks.map(drink => sendDrinkToChat(chat.id, drink, ingredientHash))
             ));
         });
     case 'clear':
@@ -325,9 +423,3 @@ updatesQueue.process(update => {
   workerLogger.debug(`Skipping update ${data.update_id}`);
   return Promise.resolve();
 });
-
-const cleanupPeriod = 1000 * 60 * 60 * 24; // one day.
-setInterval(() => {
-  // Cleanup old jobs.
-  updatesQueue.clean(cleanupPeriod);
-}, cleanupPeriod);
