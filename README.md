@@ -14,6 +14,7 @@ It suggests you cocktail recipes. Just provide the bot with ingredients you have
 /remove - Remove an ingredient
 /list - Show current ingredients
 /search - Search matching drinks
+/next - Next search results page
 /clear - Forget all of our ingredients and start over
 
 ## About
@@ -25,6 +26,7 @@ add - Add an ingredient by code
 remove - Remove an ingredient
 list - Show current ingredients
 search - Search matching drinks
+next - Next search results page
 clear - Forget all of our ingredients and start over
 
 ## Inline hint

@@ -18,7 +18,8 @@ const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.re
 const telegramApiClient = new TelegramApiClient(botConfig.token);
 const addbApiClient = new AddbApiClient(addbConfig.key);
 const inlineResultsPerPage = 10;
-const maxFoundDrinks = 2;
+const maxSearchResultsPerPage = 2;
+const maxUnmatchedIngredients = 1;
 const ingredientCodeRegEx = /^.*\((.+)\)$/;
 const samples = ['orange', 'vodka', 'lime', 'rum', 'ice', 'mint', 'cinnamon', 'aperol', 'syrup'];
 const ingredientTypes = {
@@ -82,7 +83,7 @@ function getDrinkURL(drinkId) {
 }
 
 function getDrinkImageURL(drinkId) {
-  return `http://assets.absolutdrinks.com/drinks/200x200/${drinkId}.png`;
+  return `http://assets.absolutdrinks.com/drinks/${drinkId}.png`;
 }
 
 function getRandomIngredient() {
@@ -105,8 +106,25 @@ function getRemovedIngredientMessage(ingredient) {
   return `Removed ${ingredient}.`;
 }
 
+function getAddedIngredientMessage(ingredient) {
+  return `Added ${ingredient}.`;
+}
+
+function getNextPageHelpMessage() {
+  return 'Hit /next to show next results.';
+}
+
+function getNoMoreResultsMessage() {
+  return 'No more search results. Modify your ingredients list and do /search again.';
+}
+
 function getInlineHelpMessage() {
   return 'Start typing an ingredient name. Tap for help.';
+}
+
+function getNoDrinksFoundMessage() {
+  return 'I\'m sorry, but I couldn\'t find any matching drinks. ' +
+    'Try the different set of ingredients.';
 }
 
 function getIngredientListItem(item, isPrivate) {
@@ -171,6 +189,10 @@ function processNewIngredient(message) {
       i.description,
       message.chat.id,
       message.from
+    ))
+    .then(i => telegramApiClient.sendMessage(
+      message.chat.id,
+      getAddedIngredientMessage(i.ingredientName)
     ));
 }
 
@@ -193,10 +215,31 @@ function processIngredientRemoval(ingredientCode, message) {
     ));
 }
 
+function getUnmatchedIngredientsCount(ingredientsToCheck, ingredientHash) {
+  return ingredientsToCheck.reduce((memo, ingredient) => {
+    // If we have particular ingredient in chosen ingredients hash or
+    // it is meant to be not significant, don't add up to unmatched count.
+    if (ingredient.id in ingredientHash || ingredientTypes[ingredient.type].notSignificant) {
+      return memo;
+    }
+    // Otherwise, ingredient is not matched.
+    return ++memo;
+  }, 0);
+}
+
 function pickMatchingDrinks(foundDrinks, ingredientHash) {
+  // Filter all found drinks based on ingredients on hand.
   if (foundDrinks.result && foundDrinks.result.length) {
-    const sorted = foundDrinks.result.sort((a, b) => b.rating - a.rating);
-    return sorted.slice(0, maxFoundDrinks);
+    const candidates = foundDrinks.result.reduce((memo, drink) => {
+      const unmatchedCount = getUnmatchedIngredientsCount(drink.ingredients, ingredientHash);
+      // Only consider drinks with limited unmatched ingredints count.
+      if (unmatchedCount <= maxUnmatchedIngredients) {
+        memo.push(drink);
+      }
+      return memo;
+    }, []);
+    // Order drinks by rating.
+    return candidates.sort((a, b) => b.rating - a.rating);
   }
   return [];
 }
@@ -218,31 +261,49 @@ function getDrinkIngredients(drink, ingredientHash) {
     if (i.id in ingredientHash) {
       existingIngredients.push(i.textPlain);
     } else {
-      ingredientsToGet.push(i.textPlain);
+      if (ingredientTypes[i.type].notSignificant) {
+        ingredientsToGet.push(i.textPlain);
+      } else {
+        ingredientsToGet.push(`[${i.textPlain}](${getIngredientURL(i.id)})`);
+      }
     }
   });
   return {
-    existing: existingIngredients.join(', '),
-    toGet: ingredientsToGet.join(', ')
+    existing: existingIngredients.length ? existingIngredients.join(', ') : 'nothing',
+    toGet: ingredientsToGet.length ? ingredientsToGet.join(', ') : 'nothing'
   };
 }
 
 function sendDrinkToChat(chatId, drink, ingredientHash) {
-  console.log('Sending drink to chat', drink);
   const ingredients = getDrinkIngredients(drink, ingredientHash);
   let message = `*${drink.name}* ` +
     `[(picture)](${getDrinkImageURL(drink.id)}) ` +
     `[(details)](${getDrinkURL(drink.id)})\n` +
-    `*You have:* ${ingredients.existing}; *you'll have to get:* ${ingredients.toGet}\n` +
+    `*You have:* ${ingredients.existing}; *you'll need to get:* ${ingredients.toGet}\n` +
     `*Directions:* ${drink.descriptionPlain}`;
   const videoURL = getDrinkVideoURL(drink);
   if (videoURL) {
-    message += `\n[Watch the video](${videoURL})`;
+    message += `\n[Watch how-to video](${videoURL})`;
   }
+  message += `\n${getNextPageHelpMessage()}`;
   return telegramApiClient.sendMessage(chatId, message, null, null, true);
 }
 
-function handleCommand(command, parameter, messageId, chat, user) {
+function sendDrinksToChat(chatId, drinks, ingredientHash) {
+  return drinks.reduce(
+    (promise, drink) => promise.then(sendDrinkToChat(chatId, drink, ingredientHash)),
+    Promise.resolve()
+  );
+}
+
+function getIngredientHash(ingredientCodes) {
+  return ingredientCodes.reduce((memo, item) => {
+    memo[item] = true;
+    return memo;
+  }, {});
+}
+
+function handleCommand(command, parameter, messageId, chat) {
   switch (command) {
     case 'start': {
       const actionHelp = getActionHelp(chat);
@@ -291,15 +352,18 @@ function handleCommand(command, parameter, messageId, chat, user) {
             return sendNoChosenIngredientsMessage(chat);
           }
           const ingredientCodes = ingredients.map(i => i.ingredientCode);
-          const ingredientHash = ingredientCodes.reduce((memo, item) => {
-            memo[item] = true;
-            return memo;
-          }, {});
+          const ingredientHash = getIngredientHash(ingredientCodes);
           return addbApiClient.getDrinks(ingredientCodes)
             .then(drinks => pickMatchingDrinks(drinks, ingredientHash))
-            .then(drinks => Promise.all(
-              drinks.map(drink => sendDrinkToChat(chat.id, drink, ingredientHash))
-            ));
+            .then(drinks => {
+              if (!drinks.length) {
+                return telegramApiClient.sendMessage(chat.id, getNoDrinksFoundMessage());
+              }
+              const drinksToShow = drinks.splice(0, maxSearchResultsPerPage);
+              // Send part of drinks to chat, save the rest to search results cache.
+              return sendDrinksToChat(chat.id, drinksToShow, ingredientHash)
+                .then(repository.saveSearchResults(chat.id, drinks));
+            });
         });
     case 'clear':
       return repository.clearIngredients(chat.id)
@@ -307,6 +371,22 @@ function handleCommand(command, parameter, messageId, chat, user) {
           chat.id,
           getClearedIngredientsMessage()
         ));
+    case 'next':
+      return repository.fetchSearchResults(chat.id, maxSearchResultsPerPage)
+        .then(results => {
+          if (!results.length) {
+            return telegramApiClient.sendMessage(chat.id, getNoMoreResultsMessage());
+          }
+          return repository.getIngredients(chat.id)
+            .then(ingredients => {
+              const ingredientCodes = ingredients.map(i => i.ingredientCode);
+              const ingredientHash = getIngredientHash(ingredientCodes);
+              const drinks = results.map(r => r.drinkObject);
+              // Send next results page to chat and remove them from cache.
+              return sendDrinksToChat(chat.id, drinks, ingredientHash)
+                .then(Promise.all(results.map(r => r.destroy())));
+            });
+        });
     default:
       workerLogger.warn(`Unrecognized command ${command}`);
       return Promise.resolve();
@@ -322,7 +402,7 @@ function processCommand(message) {
   const parameter = message.text.substr(commandEntity.offset + commandEntity.length).trim();
   return Promise.all([
     repository.addLoggedCommand(command, parameter, message.from),
-    handleCommand(command, parameter, message.message_id, message.chat, message.from)
+    handleCommand(command, parameter, message.message_id, message.chat)
   ]);
 }
 
