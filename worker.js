@@ -18,6 +18,7 @@ const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.re
 const telegramApiClient = new TelegramApiClient(botConfig.token);
 const addbApiClient = new AddbApiClient(addbConfig.key);
 const inlineResultsPerPage = 10;
+const maxIngredientsPerChat = 10;
 const maxSearchResultsPerPage = 2;
 const maxUnmatchedIngredients = 1;
 const ingredientCodeRegEx = /^.*\((.+)\)$/;
@@ -110,6 +111,14 @@ function getAddedIngredientMessage(ingredient) {
   return `Added ${ingredient}.`;
 }
 
+function getTooManyIngredientsMessage() {
+  return `You already have ${maxIngredientsPerChat} ingredients in this chat. I can't handle more.`;
+}
+
+function getIngredientExistsMessage() {
+  return 'You already have one.';
+}
+
 function getNextPageHelpMessage() {
   return 'Hit /next to show next results.';
 }
@@ -179,21 +188,36 @@ function sendNoChosenIngredientsMessage(chat) {
 function processNewIngredient(message) {
   const codeEntity = message.entities[0];
   const ingredientCode = message.text.substr(codeEntity.offset, codeEntity.length);
-  return addbApiClient.getIngredient(ingredientCode)
-    // TODO: Check for existing ingredient.
-    // TODO: Check for total maximum number of ingredients.
-    .then(i => repository.addIngredient(
-      ingredientCode,
-      i.name,
-      i.type,
-      i.description,
-      message.chat.id,
-      message.from
-    ))
-    .then(i => telegramApiClient.sendMessage(
-      message.chat.id,
-      getAddedIngredientMessage(i.ingredientName)
-    ));
+  // Check for existing ingredient.
+  return repository.hasIngredient(ingredientCode, message.chat.id)
+    .then(hasIngredient => {
+      if (hasIngredient) {
+        return telegramApiClient.sendMessage(message.chat.id, getIngredientExistsMessage());
+      }
+      // Check for maximum ingredients per chat.
+      return repository.getIngredientsCount(message.chat.id)
+        .then(count => {
+          if (count >= maxIngredientsPerChat) {
+            return telegramApiClient.sendMessage(message.chat.id, getTooManyIngredientsMessage());
+          }
+          // We may proceed if all checks are passed.
+          return addbApiClient.getIngredient(ingredientCode)
+            // Add ingredient.
+            .then(i => repository.addIngredient(
+              ingredientCode,
+              i.name,
+              i.type,
+              i.description,
+              message.chat.id,
+              message.from
+            ))
+            // Send confirmation to chat.
+            .then(i => telegramApiClient.sendMessage(
+              message.chat.id,
+              getAddedIngredientMessage(i.ingredientName)
+            ));
+        })
+    });
 }
 
 function parseIngredientCode(messageText) {
