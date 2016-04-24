@@ -91,7 +91,7 @@ function getRandomIngredient() {
 }
 
 function getChosenIngredientMessage(ingredient) {
-  return `/add@${botConfig.name} *${ingredient.id}*.`;
+  return `/add@${botConfig.name} *${ingredient.id}*`;
 }
 
 function getClearedIngredientsMessage() {
@@ -211,7 +211,9 @@ function processIngredientRemoval(ingredientCode, message) {
     .then(repository.setChatMode(message.chat.id, ''))
     .then(telegramApiClient.sendMessage(
       message.chat.id,
-      getRemovedIngredientMessage(message.text)
+      getRemovedIngredientMessage(message.text), {
+        hide_keyboard: true
+      }
     ));
 }
 
