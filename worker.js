@@ -448,40 +448,39 @@ function processInlineQuery(inlineQuery) {
 
   // Return list of found ingredients.
   return addbApiClient.searchIngredients(inlineQuery.query, offset, inlineResultsPerPage)
-  .then(r => {
-    if (r.result && r.result.length) {
-      const queryResults = r.result.map(ingredient => ({
-        type: 'article',
-        id: ingredient.id,
-        title: ingredient.name,
-        description: ingredient.description,
-        url: getIngredientURL(ingredient.id),
-        thumb_url: getIngredientImageURL(ingredient.id),
-        thumb_width: 200,
-        thumb_height: 200,
-        input_message_content: {
-          message_text: getChosenIngredientMessage(ingredient),
-          parse_mode: 'Markdown',
-          disable_web_page_preview: true
+    .then(r => {
+      if (r.result && r.result.length) {
+        const queryResults = r.result.map(ingredient => ({
+          type: 'article',
+          id: ingredient.id,
+          title: ingredient.name,
+          description: ingredient.description,
+          thumb_url: getIngredientImageURL(ingredient.id),
+          thumb_width: 200,
+          thumb_height: 200,
+          input_message_content: {
+            message_text: getChosenIngredientMessage(ingredient),
+            parse_mode: 'Markdown',
+            disable_web_page_preview: true
+          }
+        }));
+        const inlineQueryAnswer = {
+          inline_query_id: inlineQuery.id,
+          results: queryResults
+        };
+        const totalItems = parseInt(r.totalResult, 10) || 0;
+        const isLastPage = totalItems - offset <= inlineResultsPerPage;
+        let nextOffset = offset;
+        if (!isLastPage) {
+          nextOffset += inlineResultsPerPage;
         }
-      }));
-      const inlineQueryAnswer = {
-        inline_query_id: inlineQuery.id,
-        results: queryResults
-      };
-      const totalItems = parseInt(r.totalResult, 10) || 0;
-      const isLastPage = totalItems - offset <= inlineResultsPerPage;
-      let nextOffset = offset;
-      if (!isLastPage) {
-        nextOffset += inlineResultsPerPage;
+        if (nextOffset) {
+          inlineQueryAnswer.next_offset = nextOffset;
+        }
+        return telegramApiClient.sendInlineQueryAnswer(inlineQueryAnswer);
       }
-      if (nextOffset) {
-        inlineQueryAnswer.next_offset = nextOffset;
-      }
-      return telegramApiClient.sendInlineQueryAnswer(inlineQueryAnswer);
-    }
-    return Promise.resolve();
-  });
+      return Promise.resolve();
+    });
 }
 
 updatesQueue.process(update => {
