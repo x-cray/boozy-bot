@@ -108,7 +108,8 @@ function getRemovedIngredientMessage(ingredient) {
 }
 
 function getAddedIngredientMessage(ingredient) {
-  return `Added ${ingredient}.`;
+  return `Added ${ingredient}. ` +
+    'You may add more ingredients or use /search to find matching drinks.';
 }
 
 function getTooManyIngredientsMessage() {
@@ -116,7 +117,7 @@ function getTooManyIngredientsMessage() {
 }
 
 function getIngredientExistsMessage() {
-  return 'You already have one.';
+  return 'You already have one. You may check your ingredients with /list.';
 }
 
 function getNextPageHelpMessage() {
