@@ -133,9 +133,10 @@ function getInlineHelpMessage() {
   return 'Start typing an ingredient name. Tap for help.';
 }
 
-function getNoDrinksFoundMessage() {
+function getNoDrinksFoundMessage(helpMessage) {
   return 'I\'m sorry, but I couldn\'t find any matching drinks. ' +
-    'Try the different set of ingredients.';
+    'Try the different set of ingredients. ' +
+    `To add an ingredient, ${helpMessage}`;
 }
 
 function getIngredientListItem(item, isPrivate) {
@@ -394,7 +395,12 @@ function handleCommand(command, parameter, messageId, chat) {
             .then(drinks => pickMatchingDrinks(drinks, ingredientHash))
             .then(drinks => {
               if (!drinks.length) {
-                return telegramApiClient.sendMessage(chat.id, getNoDrinksFoundMessage());
+                const actionHelp = getIngredientSearchHelp(chat);
+                return telegramApiClient.sendMessage(
+                  chat.id,
+                  getNoDrinksFoundMessage(actionHelp.message),
+                  actionHelp.replyMarkup
+                );
               }
               const drinksToShow = drinks.splice(0, maxSearchResultsPerPage);
               // Send part of drinks to chat, save the rest to search results cache.
