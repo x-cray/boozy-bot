@@ -109,7 +109,8 @@ function getRemovedIngredientMessage(ingredient) {
 
 function getAddedIngredientMessage(ingredient) {
   return `Added ${ingredient}. ` +
-    'You may add more ingredients or use /search to find matching drinks.';
+    'You may add more ingredients or use /search to find matching drinks. ' +
+    'To check already chosen ingredients use /list.';
 }
 
 function getTooManyIngredientsMessage() {
