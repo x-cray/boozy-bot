@@ -171,8 +171,8 @@ function getIntroductionMessage(helpMessage) {
 function getIngredientSearchHelp(chat) {
   const randomSearch = getRandomIngredient();
   const isPrivate = chat.type === 'private';
-  let message = `in any of your chats type '@${botConfig.name} ${randomSearch}' ` +
-    'in the message field as an example.';
+  let message = `in the message field type '@${botConfig.name} ${randomSearch}' ` +
+    'as an example.';
   if (isPrivate) {
     message += ' Or press the button below 👇';
   }
