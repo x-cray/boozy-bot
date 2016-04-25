@@ -120,7 +120,7 @@ function getIngredientExistsMessage() {
 }
 
 function getNextPageHelpMessage() {
-  return 'Hit /next to show next results.';
+  return 'To view other results tap /next.';
 }
 
 function getNoMoreResultsMessage() {
@@ -171,7 +171,7 @@ function getIngredientSearchHelp(chat) {
   let message = `in any of your chats type '@${botConfig.name} ${randomSearch}' ` +
     'in the message field as an example.';
   if (isPrivate) {
-    message += ' Or press the button below 👇'
+    message += ' Or press the button below 👇';
   }
   return {
     message,
@@ -221,7 +221,7 @@ function processNewIngredient(message) {
               message.chat.id,
               getAddedIngredientMessage(i.ingredientName)
             ));
-        })
+        });
     });
 }
 
@@ -250,7 +250,10 @@ function getUnmatchedIngredientsCount(ingredientsToCheck, ingredientHash) {
   return ingredientsToCheck.reduce((memo, ingredient) => {
     // If we have particular ingredient in chosen ingredients hash or
     // it is meant to be not significant, don't add up to unmatched count.
-    if (ingredient.id in ingredientHash || ingredientTypes[ingredient.type].notSignificant) {
+    if (
+      ingredient.id in ingredientHash ||
+      (ingredientTypes[ingredient.type] && ingredientTypes[ingredient.type].notSignificant)
+    ) {
       return memo;
     }
     // Otherwise, ingredient is not matched.
@@ -292,7 +295,7 @@ function getDrinkIngredients(drink, ingredientHash) {
     if (i.id in ingredientHash) {
       existingIngredients.push(i.textPlain);
     } else {
-      if (ingredientTypes[i.type].notSignificant) {
+      if (ingredientTypes[i.type] && ingredientTypes[i.type].notSignificant) {
         ingredientsToGet.push(i.textPlain);
       } else {
         ingredientsToGet.push(`[${i.textPlain}](${getIngredientURL(i.id)})`);
