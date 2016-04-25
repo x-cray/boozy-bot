@@ -149,7 +149,7 @@ function getIngredientsListMessage(ingredients, isPrivate) {
     .map(i => getIngredientListItem(i, isPrivate))
     .join('\n');
   const msg =
-    `Currently chosen ingredients:\n${list}\n` +
+    `📋 Currently chosen ingredients:\n${list}\n` +
     'Hit /search to find matching drink recipes.\n' +
     'You may want to remove individual ingredients with /remove or start over with /clear.';
   return msg;
@@ -157,22 +157,27 @@ function getIngredientsListMessage(ingredients, isPrivate) {
 
 function getIntroductionMessage(helpMessage) {
   const msg =
-    '🎉 Hey! I\'m here to help you to come up with party drink ideas based ' +
+    'Hey! I\'m here to help you to come up with party drink ideas based ' +
     'on which ingredients you have in your bar. Add me to the group chat and I\'ll suggest ' +
     'you recipes for ingredients people have on hand.\n' +
-    'And yes, you have to be at least 18 years old and drink responsibly 🍸' +
+    'And yes, you have to be at least 18 years old and drink responsibly 🍸🍷🍹' +
     `\n\nTo try, ${helpMessage}`;
   return msg;
 }
 
-function getActionHelp(chat) {
+function getIngredientSearchHelp(chat) {
   const randomSearch = getRandomIngredient();
+  const isPrivate = chat.type === 'private';
+  let message = `in any of your chats type '@${botConfig.name} ${randomSearch}' ` +
+    'in the message field as an example.';
+  if (isPrivate) {
+    message += ' Or press the button below 👇'
+  }
   return {
-    message: `in any of your chats type '@${botConfig.name} ${randomSearch}' ` +
-    'in the message field as an example.',
-    replyMarkup: chat.type === 'private' ? {
+    message,
+    replyMarkup: isPrivate ? {
       inline_keyboard: [[{
-        text: `Try it now: ${randomSearch}`,
+        text: `💡 Try it now: ${randomSearch}`,
         switch_inline_query: randomSearch
       }]]
     } : null
@@ -180,9 +185,9 @@ function getActionHelp(chat) {
 }
 
 function sendNoChosenIngredientsMessage(chat) {
-  const actionHelp = getActionHelp(chat);
-  const msg = `No ingredients are chosen currently. To add one, ${actionHelp.message}`;
-  return telegramApiClient.sendMessage(chat.id, msg, actionHelp.replyMarkup);
+  const actionHelp = getIngredientSearchHelp(chat);
+  const message = `No ingredients are chosen currently. To add one, ${actionHelp.message}`;
+  return telegramApiClient.sendMessage(chat.id, message, actionHelp.replyMarkup);
 }
 
 function processNewIngredient(message) {
@@ -302,7 +307,7 @@ function getDrinkIngredients(drink, ingredientHash) {
 
 function sendDrinkToChat(chatId, drink, ingredientHash) {
   const ingredients = getDrinkIngredients(drink, ingredientHash);
-  let message = `*${drink.name}* ` +
+  let message = `🍸 *${drink.name}* ` +
     `[(picture)](${getDrinkImageURL(drink.id)}) ` +
     `[(details)](${getDrinkURL(drink.id)})\n` +
     `*You have:* ${ingredients.existing}; *you'll need to get:* ${ingredients.toGet}\n` +
@@ -333,7 +338,7 @@ function handleCommand(command, parameter, messageId, chat) {
   switch (command) {
     case 'help':
     case 'start': {
-      const actionHelp = getActionHelp(chat);
+      const actionHelp = getIngredientSearchHelp(chat);
       return telegramApiClient.sendMessage(
         chat.id,
         getIntroductionMessage(actionHelp.message),
