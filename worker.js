@@ -331,6 +331,7 @@ function getIngredientHash(ingredientCodes) {
 
 function handleCommand(command, parameter, messageId, chat) {
   switch (command) {
+    case 'help':
     case 'start': {
       const actionHelp = getActionHelp(chat);
       return telegramApiClient.sendMessage(
