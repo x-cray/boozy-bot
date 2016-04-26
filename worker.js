@@ -13,7 +13,9 @@ const workerLogger = logger.child({ source: 'worker' });
 
 const queueConfig = config.get('queue');
 const botConfig = config.get('bot');
+const botanConfig = config.get('botan');
 const addbConfig = config.get('addb');
+const botan = require('botanio')(botanConfig.token);
 const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.redis.host);
 const telegramApiClient = new TelegramApiClient(botConfig.token);
 const addbApiClient = new AddbApiClient(addbConfig.key);
@@ -193,62 +195,6 @@ function sendNoChosenIngredientsMessage(chat) {
   return telegramApiClient.sendMessage(chat.id, message, actionHelp.replyMarkup);
 }
 
-function processNewIngredient(message) {
-  const codeEntity = message.entities[0];
-  const ingredientCode = message.text.substr(codeEntity.offset, codeEntity.length);
-  // Check for existing ingredient.
-  return repository.hasIngredient(ingredientCode, message.chat.id)
-    .then(hasIngredient => {
-      if (hasIngredient) {
-        return telegramApiClient.sendMessage(message.chat.id, getIngredientExistsMessage());
-      }
-      // Check for maximum ingredients per chat.
-      return repository.getIngredientsCount(message.chat.id)
-        .then(count => {
-          if (count >= maxIngredientsPerChat) {
-            return telegramApiClient.sendMessage(message.chat.id, getTooManyIngredientsMessage());
-          }
-          // We may proceed if all checks are passed.
-          return addbApiClient.getIngredient(ingredientCode)
-            // Add ingredient.
-            .then(i => repository.addIngredient(
-              ingredientCode,
-              i.name,
-              i.type,
-              i.description,
-              message.chat.id,
-              message.from
-            ))
-            // Send confirmation to chat.
-            .then(i => telegramApiClient.sendMessage(
-              message.chat.id,
-              getAddedIngredientMessage(i.ingredientName)
-            ));
-        });
-    });
-}
-
-function parseIngredientCode(messageText) {
-  if (typeof messageText === 'string') {
-    const matches = messageText.match(ingredientCodeRegEx);
-    if (matches && matches.length) {
-      return matches[1];
-    }
-  }
-  return null;
-}
-
-function processIngredientRemoval(ingredientCode, message) {
-  return repository.removeIngredient(message.chat.id, ingredientCode)
-    .then(repository.setChatMode(message.chat.id, ''))
-    .then(telegramApiClient.sendMessage(
-      message.chat.id,
-      getRemovedIngredientMessage(message.text), {
-        hide_keyboard: true
-      }
-    ));
-}
-
 function getUnmatchedIngredientsCount(ingredientsToCheck, ingredientHash) {
   return ingredientsToCheck.reduce((memo, ingredient) => {
     // If we have particular ingredient in chosen ingredients hash or
@@ -340,10 +286,12 @@ function getIngredientHash(ingredientCodes) {
   }, {});
 }
 
-function handleCommand(command, parameter, messageId, chat) {
+function handleCommand(command, parameter, message) {
+  const chat = message.chat;
   switch (command) {
     case 'help':
     case 'start': {
+      botan.track(message, 'Start');
       const actionHelp = getIngredientSearchHelp(chat);
       return telegramApiClient.sendMessage(
         chat.id,
@@ -352,6 +300,7 @@ function handleCommand(command, parameter, messageId, chat) {
       );
     }
     case 'list': {
+      botan.track(message, 'List');
       return repository.getIngredients(chat.id)
         .then(ingredients => {
           if (!ingredients.length) {
@@ -363,7 +312,8 @@ function handleCommand(command, parameter, messageId, chat) {
           );
         });
     }
-    case 'remove':
+    case 'remove': {
+      botan.track(message, 'Remove');
       return repository.getIngredients(chat.id)
         .then(ingredients => {
           if (!ingredients.length) {
@@ -380,10 +330,12 @@ function handleCommand(command, parameter, messageId, chat) {
               chat.id,
               getRemoveIngredientMessage(),
               replyMarkup,
-              messageId
+              message.message_id
             ));
         });
-    case 'search':
+    }
+    case 'search': {
+      botan.track(message, 'Search');
       return repository.getIngredients(chat.id)
         .then(ingredients => {
           if (!ingredients.length) {
@@ -408,13 +360,17 @@ function handleCommand(command, parameter, messageId, chat) {
                 .then(repository.saveSearchResults(chat.id, drinks));
             });
         });
-    case 'clear':
+    }
+    case 'clear': {
+      botan.track(message, 'Clear');
       return repository.clearIngredients(chat.id)
         .then(telegramApiClient.sendMessage(
           chat.id,
           getClearedIngredientsMessage()
         ));
-    case 'next':
+    }
+    case 'next': {
+      botan.track(message, 'Next');
       return repository.fetchSearchResults(chat.id, maxSearchResultsPerPage)
         .then(results => {
           if (!results.length) {
@@ -430,9 +386,12 @@ function handleCommand(command, parameter, messageId, chat) {
                 .then(Promise.all(results.map(r => r.destroy())));
             });
         });
-    default:
+    }
+    default: {
+      botan.track(message, 'Unrecognized');
       workerLogger.warn(`Unrecognized command ${command}`);
       return Promise.resolve();
+    }
   }
 }
 
@@ -445,8 +404,56 @@ function processCommand(message) {
   const parameter = message.text.substr(commandEntity.offset + commandEntity.length).trim();
   return Promise.all([
     repository.addLoggedCommand(command, parameter, message.from),
-    handleCommand(command, parameter, message.message_id, message.chat)
+    handleCommand(command, parameter, message)
   ]);
+}
+
+function processNewIngredient(message) {
+  const codeEntity = message.entities[0];
+  const ingredientCode = message.text.substr(codeEntity.offset, codeEntity.length);
+  botan.track(message, 'Add ingredient');
+  // Check for existing ingredient.
+  return repository.hasIngredient(ingredientCode, message.chat.id)
+    .then(hasIngredient => {
+      if (hasIngredient) {
+        return telegramApiClient.sendMessage(message.chat.id, getIngredientExistsMessage());
+      }
+      // Check for maximum ingredients per chat.
+      return repository.getIngredientsCount(message.chat.id)
+        .then(count => {
+          if (count >= maxIngredientsPerChat) {
+            return telegramApiClient.sendMessage(message.chat.id, getTooManyIngredientsMessage());
+          }
+          // We may proceed if all checks are passed.
+          return addbApiClient.getIngredient(ingredientCode)
+            // Add ingredient.
+            .then(i => repository.addIngredient(
+              ingredientCode,
+              i.name,
+              i.type,
+              i.description,
+              message.chat.id,
+              message.from
+            ))
+            // Send confirmation to chat.
+            .then(i => telegramApiClient.sendMessage(
+              message.chat.id,
+              getAddedIngredientMessage(i.ingredientName)
+            ));
+        });
+    });
+}
+
+function processIngredientRemoval(ingredientCode, message) {
+  botan.track(message, 'Remove ingredient');
+  return repository.removeIngredient(message.chat.id, ingredientCode)
+    .then(repository.setChatMode(message.chat.id, ''))
+    .then(telegramApiClient.sendMessage(
+      message.chat.id,
+      getRemovedIngredientMessage(message.text), {
+        hide_keyboard: true
+      }
+    ));
 }
 
 function processInlineQuery(inlineQuery) {
@@ -455,6 +462,7 @@ function processInlineQuery(inlineQuery) {
 
   // Display inline mode help button.
   if (!inlineQuery.query) {
+    botan.track(inlineQuery, 'Empty inline query');
     return telegramApiClient.sendInlineQueryAnswer({
       inline_query_id: inlineQuery.id,
       results: [],
@@ -464,6 +472,7 @@ function processInlineQuery(inlineQuery) {
   }
 
   // Return list of found ingredients.
+  botan.track(inlineQuery, 'Inline query');
   return addbApiClient.searchIngredients(inlineQuery.query, offset, inlineResultsPerPage)
     .then(r => {
       if (r.result && r.result.length) {
@@ -498,6 +507,16 @@ function processInlineQuery(inlineQuery) {
       }
       return Promise.resolve();
     });
+}
+
+function parseIngredientCode(messageText) {
+  if (typeof messageText === 'string') {
+    const matches = messageText.match(ingredientCodeRegEx);
+    if (matches && matches.length) {
+      return matches[1];
+    }
+  }
+  return null;
 }
 
 updatesQueue.process(update => {

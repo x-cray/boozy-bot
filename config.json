@@ -3,6 +3,9 @@
     "name": "BoozyBot",
     "token": ""
   },
+  "botan": {
+    "token": ""
+  },
   "addb": {
     "key": null
   },
