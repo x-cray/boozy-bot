@@ -315,13 +315,14 @@ function sendDrinkToChat(chatId, drink, ingredientHash) {
   const ingredients = getDrinkIngredients(drink, ingredientHash);
   const videoURL = getDrinkVideoURL(drink);
   /* eslint prefer-template: 0 */
-  let message = `🍸 *${drink.name}* ` +
+  const message = `🍸 *${drink.name}* ` +
     (videoURL ? `[(video)](${videoURL}) ` : '') +
     `[(picture)](${getDrinkImageURL(drink.id)}) ` +
     `[(details)](${getDrinkURL(drink.id)})\n` +
     `*You have:* ${ingredients.existing}; *you'll need to get:* ${ingredients.toGet}\n` +
-    `*Directions:* ${drink.descriptionPlain}`;
-  message += `\n${getNextPageHelpMessage()}`;
+    `*Directions:* ${drink.descriptionPlain}\n` +
+    getNextPageHelpMessage();
+
   return telegramApiClient.sendMessage(chatId, message, null, null, true);
 }
 
