@@ -6,6 +6,7 @@ const TelegramApiClient = require('./lib/telegram-api-client');
 const AddbApiClient = require('./lib/addb-api-client');
 const config = require('./lib/config');
 const logger = require('./lib/logger');
+const errors = require('./lib/errors');
 const Repository = require('./lib/repository');
 const repository = new Repository();
 const queueLogger = logger.child({ source: 'queue' });
@@ -519,41 +520,41 @@ function parseIngredientCode(messageText) {
   return null;
 }
 
-updatesQueue.process(update => {
-  const data = update.data;
-  workerLogger.debug(data, 'Received an update');
+function executeJob(job) {
+  const update = job.data;
+  workerLogger.debug(update, 'Received an update');
 
   // Handle inline ingredients search query.
-  if (data.inline_query) {
-    return processInlineQuery(data.inline_query);
+  if (update.inline_query) {
+    return processInlineQuery(update.inline_query);
   }
 
-  if (data.message) {
-    if (data.message.entities && data.message.entities.length) {
+  if (update.message) {
+    if (update.message.entities && update.message.entities.length) {
       // Handle bot command.
-      if (data.message.entities[0].type === 'bot_command') {
-        return processCommand(data.message);
+      if (update.message.entities[0].type === 'bot_command') {
+        return processCommand(update.message);
       }
 
       // Handle chosen ingredient message.
-      if (data.message.text.startsWith('/add') && data.message.entities[0].type === 'bold') {
-        return processNewIngredient(data.message);
+      if (update.message.text.startsWith('/add') && update.message.entities[0].type === 'bold') {
+        return processNewIngredient(update.message);
       }
     }
 
     // Try to guess ingredient code from the message.
-    const ingredientCode = parseIngredientCode(data.message.text);
+    const ingredientCode = parseIngredientCode(update.message.text);
     if (ingredientCode) {
       // It's possible that user tries tu remove an ingredient. Check chat mode.
-      return repository.getChatMode(data.message.chat.id).then(chatMode => {
+      return repository.getChatMode(update.message.chat.id).then(chatMode => {
         if (chatMode === 'remove') {
           // Handle ingredient removal.
-          return processIngredientRemoval(ingredientCode, data.message);
+          return processIngredientRemoval(ingredientCode, update.message);
         }
 
         // False alarm, just skip this update.
         workerLogger.debug(
-          `Skipping update ${data.update_id} with ingredient code, was not in any related mode`
+          `Skipping update ${update.update_id} with ingredient code, was not in any related mode`
         );
         return Promise.resolve();
       });
@@ -561,6 +562,27 @@ updatesQueue.process(update => {
   }
 
   // ... or just skip unrecognized update.
-  workerLogger.debug(`Skipping update ${data.update_id}`);
+  workerLogger.debug(`Skipping update ${update.update_id}`);
   return Promise.resolve();
+}
+
+updatesQueue.process((job, done) => {
+  executeJob(job)
+    .then(() => done())
+    .catch(err => {
+      // Log the error.
+      workerLogger.error(err, 'Worker error');
+
+      // Check for error type and decide on job retrying.
+      if (err instanceof errors.HttpError) {
+        if (err.status >= 400 && err.status < 500) {
+          // Skip retrying for any client errors.
+          workerLogger.info('Skip retrying the job due to unrecoverable client error.');
+          return done();
+        }
+      }
+
+      // Retry on any other error types.
+      return done(err);
+    });
 });
