@@ -20,7 +20,7 @@ const botan = require('botanio')(botanConfig.token);
 const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.redis.host);
 const telegramApiClient = new TelegramApiClient(botConfig.token);
 const addbApiClient = new AddbApiClient(addbConfig.key);
-const inlineResultsPerPage = 10;
+const inlineResultsPerPage = 5;
 const maxIngredientsPerChat = 10;
 const maxSearchResultsPerPage = 2;
 const maxUnmatchedIngredients = 1;
@@ -74,12 +74,16 @@ updatesQueue
   .on('failed', (job, err) => queueLogger.warn(err, `Job ${job.jobId} failed`))
   .on('stalled', job => queueLogger.warn(`Job ${job.jobId} stalled`));
 
-function getIngredientURL(ingredientCode) {
-  return `http://www.absolutdrinks.com/en/drinks/with/${ingredientCode}/`;
+function getIngredientURL(ingredientId) {
+  return `http://www.absolutdrinks.com/en/drinks/with/${ingredientId}/`;
 }
 
-function getIngredientImageURL(ingredientCode) {
-  return `http://assets.absolutdrinks.com/ingredients/200x200/${ingredientCode}.png`;
+function getIngredientThumbnailURL(ingredientId) {
+  return `http://assets.absolutdrinks.com/ingredients/200x200/${ingredientId}.png`;
+}
+
+function getDrinkThumbnailURL(drinkId) {
+  return `http://assets.absolutdrinks.com/ingredients/200x200/${drinkId}.png`;
 }
 
 function getDrinkURL(drinkId) {
@@ -133,7 +137,7 @@ function getNoMoreResultsMessage() {
 }
 
 function getInlineHelpMessage() {
-  return 'Start typing an ingredient name. Tap for help.';
+  return 'Start typing an ingredient or drink name. Tap for help.';
 }
 
 function getNoDrinksFoundMessage(helpMessage) {
@@ -187,6 +191,40 @@ function getIngredientSearchHelp(chat) {
         switch_inline_query: randomSearch
       }]]
     } : null
+  };
+}
+
+function getIngredientInlineSearchResult(ingredient) {
+  return {
+    type: 'article',
+    id: ingredient.id,
+    title: ingredient.name,
+    description: ingredient.description,
+    thumb_url: getIngredientThumbnailURL(ingredient.id),
+    thumb_width: 200,
+    thumb_height: 200,
+    input_message_content: {
+      message_text: getChosenIngredientMessage(ingredient),
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true
+    }
+  };
+}
+
+function getDrinkInlineSearchResult(drink) {
+  return {
+    type: 'article',
+    id: drink.id,
+    title: drink.name,
+    description: drink.story,
+    thumb_url: getIngredientThumbnailURL(drink.id),
+    thumb_width: 200,
+    thumb_height: 200,
+    input_message_content: {
+      message_text: getChosenIngredientMessage(drink),
+      parse_mode: 'Markdown',
+      disable_web_page_preview: true
+    }
   };
 }
 
@@ -477,20 +515,7 @@ function processInlineQuery(inlineQuery) {
   return addbApiClient.searchIngredients(inlineQuery.query, offset, inlineResultsPerPage)
     .then(r => {
       if (r.result && r.result.length) {
-        const queryResults = r.result.map(ingredient => ({
-          type: 'article',
-          id: ingredient.id,
-          title: ingredient.name,
-          description: ingredient.description,
-          thumb_url: getIngredientImageURL(ingredient.id),
-          thumb_width: 200,
-          thumb_height: 200,
-          input_message_content: {
-            message_text: getChosenIngredientMessage(ingredient),
-            parse_mode: 'Markdown',
-            disable_web_page_preview: true
-          }
-        }));
+        const queryResults = r.result.map(getIngredientInlineSearchResult);
         const inlineQueryAnswer = {
           inline_query_id: inlineQuery.id,
           results: queryResults
