@@ -495,9 +495,29 @@ function processIngredientRemoval(ingredientCode, message) {
     ));
 }
 
+/**
+ * Parses inline search query offset in form '<ingredientsOffset>:<drinksOffset>'.
+ * @param {string} offset Offset value.
+ */
+function parseInlineQueryOffset(offset) {
+  if (!offset) {
+    return [0, 0];
+  }
+  const [ingredientsOffset, drinksOffset] = offset.split(':');
+  return [parseInt(ingredientsOffset, 10), parseInt(drinksOffset, 10)];
+}
+
+function sendInlineQueryAnswer(inlineQueryAnswer) {
+
+}
+
+/**
+ * Generates and sends the answer to inline query.
+ * @param  {Object} inlineQuery
+ * @return {Promise}
+ */
 function processInlineQuery(inlineQuery) {
   workerLogger.info(inlineQuery, 'Processing inline query update');
-  const offset = parseInt(inlineQuery.offset, 10) || 0;
 
   // Display inline mode help button.
   if (!inlineQuery.query) {
@@ -510,28 +530,48 @@ function processInlineQuery(inlineQuery) {
     });
   }
 
-  // Return list of found ingredients.
+  const [ingredientsOffset, drinksOffset] = parseInlineQueryOffset(inlineQuery.offset);
+  const queryPromises = [];
+
+  if (ingredientsOffset > -1) {
+    queryPromises.push(
+      addbApiClient.searchIngredients(inlineQuery.query, ingredientsOffset, inlineResultsPerPage)
+    );
+  }
+
+  if (drinksOffset > -1) {
+    queryPromises.push(
+      addbApiClient.searchDrinks(inlineQuery.query, drinksOffset, inlineResultsPerPage)
+    );
+  }
+
   botan.track(inlineQuery, 'Inline query');
+  return Promise.all(queryPromises).then(results => {
+    
+  });
+
+  // Send list of found ingredients.
   return addbApiClient.searchIngredients(inlineQuery.query, offset, inlineResultsPerPage)
     .then(r => {
-      if (r.result && r.result.length) {
-        const queryResults = r.result.map(getIngredientInlineSearchResult);
-        const inlineQueryAnswer = {
-          inline_query_id: inlineQuery.id,
-          results: queryResults
-        };
-        const totalItems = parseInt(r.totalResult, 10) || 0;
-        const isLastPage = totalItems - offset <= inlineResultsPerPage;
-        let nextOffset = offset;
-        if (!isLastPage) {
-          nextOffset += inlineResultsPerPage;
-        }
-        if (nextOffset) {
-          inlineQueryAnswer.next_offset = nextOffset;
-        }
-        return telegramApiClient.sendInlineQueryAnswer(inlineQueryAnswer);
+      if (!r.result || !r.result.length) {
+        return Promise.resolve();
       }
-      return Promise.resolve();
+
+      const queryResults = r.result.map(getIngredientInlineSearchResult);
+      const inlineQueryAnswer = {
+        inline_query_id: inlineQuery.id,
+        results: queryResults
+      };
+      const totalItems = parseInt(r.totalResult, 10) || 0;
+      const isLastPage = totalItems - offset <= inlineResultsPerPage;
+      let nextOffset = offset;
+      if (!isLastPage) {
+        nextOffset += inlineResultsPerPage;
+      }
+      if (nextOffset) {
+        inlineQueryAnswer.next_offset = nextOffset;
+      }
+      return telegramApiClient.sendInlineQueryAnswer(inlineQueryAnswer);
     });
 }
 
