@@ -7,6 +7,7 @@ const AddbApiClient = require('./lib/addb-api-client');
 const config = require('./lib/config');
 const logger = require('./lib/logger');
 const errors = require('./lib/errors');
+const fmt = require('./formatter');
 const Repository = require('./lib/repository');
 const repository = new Repository();
 const queueLogger = logger.child({ source: 'queue' });
@@ -21,51 +22,9 @@ const updatesQueue = new Queue('updates', queueConfig.redis.port, queueConfig.re
 const telegramApiClient = new TelegramApiClient(botConfig.token);
 const addbApiClient = new AddbApiClient(addbConfig.key);
 const inlineResultsPerPage = 5;
-const maxIngredientsPerChat = 10;
 const maxSearchResultsPerPage = 2;
 const maxUnmatchedIngredients = 1;
 const ingredientCodeRegEx = /^.*\((.+)\)$/;
-const samples = ['orange', 'vodka', 'lime', 'rum', 'ice', 'mint', 'cinnamon', 'aperol', 'syrup'];
-const ingredientTypes = {
-  BaseSpirit: {
-  },
-  berries: {
-    icon: '🍓',
-    notSignificant: true
-  },
-  brandy: {
-  },
-  decoration: {
-    notSignificant: true
-  },
-  fruits: {
-    icon: '🍐',
-    notSignificant: true
-  },
-  gin: {
-  },
-  ice: {
-    notSignificant: true
-  },
-  mixers: {
-    notSignificant: true
-  },
-  others: {
-    notSignificant: true
-  },
-  rum: {
-  },
-  'spices-herbs': {
-  },
-  'spirits-other': {
-  },
-  tequila: {
-  },
-  vodka: {
-  },
-  whisky: {
-  },
-};
 
 updatesQueue
   .on('ready', () => queueLogger.info('Queue is ready to process jobs'))
@@ -74,137 +33,17 @@ updatesQueue
   .on('failed', (job, err) => queueLogger.warn(err, `Job ${job.jobId} failed`))
   .on('stalled', job => queueLogger.warn(`Job ${job.jobId} stalled`));
 
-function getIngredientURL(ingredientId) {
-  return `http://www.absolutdrinks.com/en/drinks/with/${ingredientId}/`;
-}
-
-function getIngredientThumbnailURL(ingredientId) {
-  return `http://assets.absolutdrinks.com/ingredients/200x200/${ingredientId}.png`;
-}
-
-function getDrinkThumbnailURL(drinkId) {
-  return `http://assets.absolutdrinks.com/ingredients/200x200/${drinkId}.png`;
-}
-
-function getDrinkURL(drinkId) {
-  return `http://www.absolutdrinks.com/en/drinks/${drinkId}`;
-}
-
-function getDrinkImageURL(drinkId) {
-  return `http://assets.absolutdrinks.com/drinks/${drinkId}.png`;
-}
-
-function getRandomIngredient() {
-  return samples[Math.floor(Math.random() * samples.length)];
-}
-
-function getChosenIngredientMessage(ingredient) {
-  return `/add@${botConfig.name} *${ingredient.id}*`;
-}
-
-function getClearedIngredientsMessage() {
-  return 'Cleared available ingredients.';
-}
-
-function getRemoveIngredientMessage() {
-  return 'Which ingredient you would like to remove?';
-}
-
-function getRemovedIngredientMessage(ingredient) {
-  return `Removed ${ingredient}.`;
-}
-
-function getAddedIngredientMessage(ingredient) {
-  return `Added ${ingredient}. ` +
-    'You may add more ingredients or use /search to find matching drinks. ' +
-    'To check already chosen ingredients use /list.';
-}
-
-function getTooManyIngredientsMessage() {
-  return `You already have ${maxIngredientsPerChat} ingredients in this chat. I can't handle more.`;
-}
-
-function getIngredientExistsMessage() {
-  return 'You already have one. You may check your ingredients with /list.';
-}
-
-function getNextPageHelpMessage() {
-  return 'To view other results tap /next.';
-}
-
-function getNoMoreResultsMessage() {
-  return 'No more search results. Modify your ingredients list and do /search again.';
-}
-
-function getInlineHelpMessage() {
-  return 'Start typing an ingredient or drink name. Tap for help.';
-}
-
-function getNoDrinksFoundMessage(helpMessage) {
-  return 'I\'m sorry, but I couldn\'t find any matching drinks. ' +
-    'Try the different set of ingredients. ' +
-    `To add an ingredient, ${helpMessage}`;
-}
-
-function getIngredientListItem(item, isPrivate) {
-  let base = `- *${item.ingredientName}* [(details)](${getIngredientURL(item.ingredientCode)})`;
-  if (!isPrivate) {
-    base += ` by ${item.getFullName()}`;
-  }
-  return base;
-}
-
-function getIngredientsListMessage(ingredients, isPrivate) {
-  const list = ingredients
-    .map(i => getIngredientListItem(i, isPrivate))
-    .join('\n');
-  const msg =
-    `📋 Currently chosen ingredients:\n${list}\n` +
-    'Hit /search to find matching drink recipes.\n' +
-    'You may want to remove individual ingredients with /remove or start over with /clear.';
-  return msg;
-}
-
-function getIntroductionMessage(helpMessage) {
-  const msg =
-    'Hey! I\'m here to help you to come up with party drink ideas based ' +
-    'on which ingredients you have in your bar. Add me to the group chat and I\'ll suggest ' +
-    'you recipes for ingredients people have on hand.\n' +
-    'And yes, you have to be at least 18 years old and drink responsibly 🍸🍷🍹' +
-    `\n\nTo try, ${helpMessage}`;
-  return msg;
-}
-
-function getIngredientSearchHelp(chat) {
-  const randomSearch = getRandomIngredient();
-  const isPrivate = chat.type === 'private';
-  let message = `in the message field type '@${botConfig.name} ${randomSearch}' ` +
-    'as an example.';
-  if (isPrivate) {
-    message += ' Or press the button below 👇';
-  }
-  return {
-    message,
-    replyMarkup: isPrivate ? {
-      inline_keyboard: [[{
-        text: `💡 Try it now: ${randomSearch}`,
-        switch_inline_query: randomSearch
-      }]]
-    } : null
-  };
-}
-
 function getIngredientInlineSearchResult(ingredient) {
   return {
     type: 'article',
     id: ingredient.id,
     title: ingredient.name,
     description: ingredient.description,
-    thumb_url: getIngredientThumbnailURL(ingredient.id),
+    thumb_url: fmt.getIngredientThumbnailURL(ingredient.id),
     thumb_width: 200,
     thumb_height: 200,
     input_message_content: {
-      message_text: getChosenIngredientMessage(ingredient),
+      message_text: fmt.getChosenIngredientMessage(ingredient),
       parse_mode: 'Markdown',
       disable_web_page_preview: true
     }
@@ -217,11 +56,11 @@ function getDrinkInlineSearchResult(drink) {
     id: drink.id,
     title: drink.name,
     description: drink.story,
-    thumb_url: getIngredientThumbnailURL(drink.id),
+    thumb_url: fmt.getIngredientThumbnailURL(drink.id),
     thumb_width: 200,
     thumb_height: 200,
     input_message_content: {
-      message_text: getChosenIngredientMessage(drink),
+      message_text: fmt.getChosenIngredientMessage(drink),
       parse_mode: 'Markdown',
       disable_web_page_preview: true
     }
@@ -229,9 +68,8 @@ function getDrinkInlineSearchResult(drink) {
 }
 
 function sendNoChosenIngredientsMessage(chat) {
-  const actionHelp = getIngredientSearchHelp(chat);
-  const message = `No ingredients are chosen currently. To add one, ${actionHelp.message}`;
-  return telegramApiClient.sendMessage(chat.id, message, actionHelp.replyMarkup);
+  const res = fmt.getNoChosenIngredientsMessage(chat);
+  return telegramApiClient.sendMessage(chat.id, res.message, res.replyMarkup);
 }
 
 function getUnmatchedIngredientsCount(ingredientsToCheck, ingredientHash) {
@@ -240,7 +78,7 @@ function getUnmatchedIngredientsCount(ingredientsToCheck, ingredientHash) {
     // it is meant to be not significant, don't add up to unmatched count.
     if (
       ingredient.id in ingredientHash ||
-      (ingredientTypes[ingredient.type] && ingredientTypes[ingredient.type].notSignificant)
+      (fmt.ingredientTypes[ingredient.type] && fmt.ingredientTypes[ingredient.type].notSignificant)
     ) {
       return memo;
     }
@@ -266,49 +104,9 @@ function pickMatchingDrinks(foundDrinks, ingredientHash) {
   return [];
 }
 
-function getDrinkVideoURL(drink) {
-  if (drink.videos) {
-    const youtube = drink.videos.find(el => el.type === 'youtube');
-    if (youtube) {
-      return `http://www.youtube.com/watch?v=${youtube.video}`;
-    }
-  }
-  return null;
-}
-
-function getDrinkIngredients(drink, ingredientHash) {
-  const existingIngredients = [];
-  const ingredientsToGet = [];
-  drink.ingredients.forEach(i => {
-    if (i.id in ingredientHash) {
-      existingIngredients.push(i.textPlain);
-    } else {
-      if (ingredientTypes[i.type] && ingredientTypes[i.type].notSignificant) {
-        ingredientsToGet.push(i.textPlain);
-      } else {
-        ingredientsToGet.push(`[${i.textPlain}](${getIngredientURL(i.id)})`);
-      }
-    }
-  });
-  return {
-    existing: existingIngredients.length ? existingIngredients.join(', ') : 'nothing',
-    toGet: ingredientsToGet.length ? ingredientsToGet.join(', ') : 'nothing'
-  };
-}
-
 function sendDrinkToChat(chatId, drink, ingredientHash) {
-  const ingredients = getDrinkIngredients(drink, ingredientHash);
-  const videoURL = getDrinkVideoURL(drink);
-  /* eslint prefer-template: 0 */
-  const message = `🍸 *${drink.name}* ` +
-    (videoURL ? `[(video)](${videoURL}) ` : '') +
-    `[(picture)](${getDrinkImageURL(drink.id)}) ` +
-    `[(details)](${getDrinkURL(drink.id)})\n` +
-    `*You have:* ${ingredients.existing}; *you'll need to get:* ${ingredients.toGet}\n` +
-    `*Directions:* ${drink.descriptionPlain}\n` +
-    getNextPageHelpMessage();
-
-  return telegramApiClient.sendMessage(chatId, message, null, null, true);
+  const drinkMessage = fmt.getDrinkMessage(drink, ingredientHash);
+  return telegramApiClient.sendMessage(chatId, drinkMessage, null, null, true);
 }
 
 function sendDrinksToChat(chatId, drinks, ingredientHash) {
@@ -331,10 +129,10 @@ function handleCommand(command, parameter, message) {
     case 'help':
     case 'start': {
       botan.track(message, 'Start');
-      const actionHelp = getIngredientSearchHelp(chat);
+      const actionHelp = fmt.getIngredientSearchHelp(chat);
       return telegramApiClient.sendMessage(
         chat.id,
-        getIntroductionMessage(actionHelp.message),
+        fmt.getIntroductionMessage(actionHelp.message),
         actionHelp.replyMarkup
       );
     }
@@ -347,7 +145,7 @@ function handleCommand(command, parameter, message) {
           }
           return telegramApiClient.sendMessage(
             chat.id,
-            getIngredientsListMessage(ingredients, chat.type === 'private')
+            fmt.getIngredientsListMessage(ingredients, chat.type === 'private')
           );
         });
     }
@@ -367,7 +165,7 @@ function handleCommand(command, parameter, message) {
           return repository.setChatMode(chat.id, 'remove')
             .then(telegramApiClient.sendMessage(
               chat.id,
-              getRemoveIngredientMessage(),
+              fmt.getRemoveIngredientMessage(),
               replyMarkup,
               message.message_id
             ));
@@ -386,10 +184,10 @@ function handleCommand(command, parameter, message) {
             .then(drinks => pickMatchingDrinks(drinks, ingredientHash))
             .then(drinks => {
               if (!drinks.length) {
-                const actionHelp = getIngredientSearchHelp(chat);
+                const actionHelp = fmt.getIngredientSearchHelp(chat);
                 return telegramApiClient.sendMessage(
                   chat.id,
-                  getNoDrinksFoundMessage(actionHelp.message),
+                  fmt.getNoDrinksFoundMessage(actionHelp.message),
                   actionHelp.replyMarkup
                 );
               }
@@ -405,7 +203,7 @@ function handleCommand(command, parameter, message) {
       return repository.clearIngredients(chat.id)
         .then(telegramApiClient.sendMessage(
           chat.id,
-          getClearedIngredientsMessage()
+          fmt.getClearedIngredientsMessage()
         ));
     }
     case 'next': {
@@ -413,7 +211,7 @@ function handleCommand(command, parameter, message) {
       return repository.fetchSearchResults(chat.id, maxSearchResultsPerPage)
         .then(results => {
           if (!results.length) {
-            return telegramApiClient.sendMessage(chat.id, getNoMoreResultsMessage());
+            return telegramApiClient.sendMessage(chat.id, fmt.getNoMoreResultsMessage());
           }
           return repository.getIngredients(chat.id)
             .then(ingredients => {
@@ -455,13 +253,19 @@ function processNewIngredient(message) {
   return repository.hasIngredient(ingredientCode, message.chat.id)
     .then(hasIngredient => {
       if (hasIngredient) {
-        return telegramApiClient.sendMessage(message.chat.id, getIngredientExistsMessage());
+        return telegramApiClient.sendMessage(
+          message.chat.id,
+          fmt.getIngredientExistsMessage()
+        );
       }
       // Check for maximum ingredients per chat.
       return repository.getIngredientsCount(message.chat.id)
         .then(count => {
-          if (count >= maxIngredientsPerChat) {
-            return telegramApiClient.sendMessage(message.chat.id, getTooManyIngredientsMessage());
+          if (count >= fmt.maxIngredientsPerChat) {
+            return telegramApiClient.sendMessage(
+              message.chat.id,
+              fmt.getTooManyIngredientsMessage()
+            );
           }
           // We may proceed if all checks are passed.
           return addbApiClient.getIngredient(ingredientCode)
@@ -477,7 +281,7 @@ function processNewIngredient(message) {
             // Send confirmation to chat.
             .then(i => telegramApiClient.sendMessage(
               message.chat.id,
-              getAddedIngredientMessage(i.ingredientName)
+              fmt.getAddedIngredientMessage(i.ingredientName)
             ));
         });
     });
@@ -489,7 +293,7 @@ function processIngredientRemoval(ingredientCode, message) {
     .then(repository.setChatMode(message.chat.id, ''))
     .then(telegramApiClient.sendMessage(
       message.chat.id,
-      getRemovedIngredientMessage(message.text), {
+      fmt.getRemovedIngredientMessage(message.text), {
         hide_keyboard: true
       }
     ));
@@ -525,7 +329,7 @@ function processInlineQuery(inlineQuery) {
     return telegramApiClient.sendInlineQueryAnswer({
       inline_query_id: inlineQuery.id,
       results: [],
-      switch_pm_text: getInlineHelpMessage(),
+      switch_pm_text: fmt.getInlineHelpMessage(),
       switch_pm_parameter: 'hint'
     });
   }
@@ -547,7 +351,7 @@ function processInlineQuery(inlineQuery) {
 
   botan.track(inlineQuery, 'Inline query');
   return Promise.all(queryPromises).then(results => {
-    
+
   });
 
   // Send list of found ingredients.
